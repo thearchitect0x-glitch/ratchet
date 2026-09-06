@@ -1,4 +1,6 @@
-# Ratchet
+<h1 align="center">
+  <img src="docs/assets/banner.svg" alt="Ratchet — an effect gate for AI agents" width="860">
+</h1>
 
 [![CI](https://github.com/thearchitect0x-glitch/ratchet/actions/workflows/ci.yml/badge.svg)](https://github.com/thearchitect0x-glitch/ratchet/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/thearchitect0x-glitch/ratchet/actions/workflows/codeql.yml/badge.svg)](https://github.com/thearchitect0x-glitch/ratchet/actions/workflows/codeql.yml)

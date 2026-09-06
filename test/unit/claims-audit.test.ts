@@ -165,7 +165,10 @@ test('the published webhook event list matches the events that exist', () => {
   const doc = readFileSync(join(ROOT, 'docs/handoff/API_AND_DATA_CONTRACTS.md'), 'utf8');
   const section = doc.slice(doc.indexOf('## Webhooks'));
   const published = new Set(
-    [...section.slice(0, section.indexOf('Headers:')).matchAll(/`([a-z]+\.[a-z_]+)`/g)]
+    // Underscores appear on BOTH sides of the dot: `effect_type.first_seen` was
+    // the first such event, and the original pattern here allowed them only
+    // after it — so a correctly documented event read as missing.
+    [...section.slice(0, section.indexOf('Headers:')).matchAll(/`([a-z_]+\.[a-z_]+)`/g)]
       .map((m) => m[1]!),
   );
 

@@ -16,6 +16,7 @@ export const EVENT_TYPES = [
   'circuit.tripped',
   'reconciliation.due',
   'structuring.detected',
+  'effect_type.first_seen',
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

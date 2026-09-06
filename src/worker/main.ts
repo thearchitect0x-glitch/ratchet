@@ -17,6 +17,7 @@ import { drainExpiredLeases, collectExpiredEffects, collectStaleRecords } from '
 import { chainPendingReceipts, pruneReceipts } from '../domain/receipts.js';
 import { refreshSurgeBaselines } from '../domain/circuit.js';
 import { noticeOverdue } from '../domain/reconciliation.js';
+import { noticeNewEffectTypes } from '../domain/novel-effect-types.js';
 import { gcWindows as gcFeedbackWindows } from '../domain/feedback.js';
 import { gcProvisionWindows } from '../domain/provisioning.js';
 import { gcRunBudgets } from '../domain/run-budget.js';
@@ -214,6 +215,21 @@ async function main() {
   // measured in hours, and the sweep notifies once per cadence rather than once
   // per pass.
   loop('reconciliation-due', 60 * 60_000, () => noticeOverdue());
+
+  // An effect type this workspace has never gated before. An unconfigured type
+  // defaults to allow — deny would break every legitimate first integration —
+  // so nothing refused it and, until this loop, nothing mentioned it either.
+  // The primary adversary in ASSURANCE_CASE.md is a compromised agent holding a
+  // valid key, and such an agent doing something categorically new is the
+  // highest-signal event it produces.
+  //
+  // Five minutes: fast enough that an operator hears about it while the agent
+  // is still running, and far off the begin path, where a fourth table in the
+  // transaction would put a new edge in the lock order CLAUDE.md §7 fixes.
+  loop('novel-effect-types', 5 * 60_000, async () => {
+    const r = await noticeNewEffectTypes();
+    return r.announced ? { note: `${r.announced} new effect type(s)` } : {};
+  });
 
   // Money, so: infrequent, and the only loop here that spends any. Five
   // minutes is deliberate — a balance that just crossed a threshold is not an

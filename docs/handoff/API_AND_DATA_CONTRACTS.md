@@ -468,9 +468,10 @@ asserted by a test that greps responses for stack frames, SQL, and connection st
 
 ## Webhooks
 
-Events: `effect.succeeded` · `effect.failed` · `effect.indeterminate` ·
-`effect.approval_required` · `effect.approved` · `effect.rejected` · `effect.denied` ·
-`budget.exceeded`
+Events: `effect.succeeded` · `effect.failed` · `effect.indeterminate` · `effect.approval_required` · `effect.approved` · `effect.rejected` · `effect.denied` · `budget.exceeded` · `circuit.tripped` · `reconciliation.due` · `effect_type.first_seen`
+
+This list is checked against `EVENT_TYPES` by `test/unit/claims-audit.test.ts`. It named
+eight when ten existed.
 
 Headers: `ratchet-delivery-id`, `ratchet-timestamp`, `ratchet-signature`, `idempotency-key`.
 

@@ -35,6 +35,24 @@
 
     <ul class="posts">
       <li>
+        <a href="/notes/every-health-check-was-green">
+          Every health check was green and the standby was 590 MB behind</a>
+        <p class="dim">A Postgres standby stopped applying WAL for 34 minutes while every health check returned 200. Why replay_lag reads zero on a broken replica.</p>
+        <time datetime="2026-09-06">6 September 2026</time>
+      </li>
+      <li>
+        <a href="/notes/fixing-availability-caused-an-outage">
+          Fixing an availability defect caused a twelve-minute outage</a>
+        <p class="dim">Scaling the control plane from one machine to two pushed a 256MB Postgres into an OOM loop. The connection budget nobody had written down.</p>
+        <time datetime="2026-09-06">6 September 2026</time>
+      </li>
+      <li>
+        <a href="/notes/a-planned-failover-left-two-primaries">
+          A planned failover left us with two primaries</a>
+        <p class="dim">A planned Postgres failover promoted a node, failed its health check, gave up, and restarted the old primary. Twenty-five minutes down, no data lost.</p>
+        <time datetime="2026-09-06">6 September 2026</time>
+      </li>
+      <li>
         <a href="/notes/what-happens-when-step-five-fails">
           What happens when step five fails</a>
         <p class="dim">A booking agent completes four steps and the payment declines. A retry

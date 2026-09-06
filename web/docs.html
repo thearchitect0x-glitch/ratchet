@@ -138,6 +138,23 @@
       <code>idempotency_key_reuse</code> — that collision would otherwise hide a real, distinct
       action behind an unrelated record.
     </p>
+
+    <h3 style="margin-top:2rem">When the recorded result is sensitive, blind the key</h3>
+    <p class="dim">Everything above is deterministic, which is required: the gate can only
+      recognise a duplicate if the duplicate says the same thing. Deterministic also means
+      <em>guessable</em>, and a <code>duplicate</code> decision returns the recorded result of
+      the earlier attempt — that is what makes replay work. So anyone holding a key for your
+      workspace who can guess <code class="mono">refund:order_551:full</code> can read what
+      that refund recorded.</p>
+    <p class="dim">You do not have to choose between the two. Hash the meaningful key with a
+      secret only your system holds:</p>
+    <pre class="small mono" style="overflow-x:auto"><code>key = "refund:order_551:full"
+idempotency_key = hmac_sha256(YOUR_SECRET, key).hexdigest()[:32]</code></pre>
+    <p class="small faint">Still deterministic — the same action produces the same key on every
+      retry, so duplicate detection is unchanged. No longer enumerable, because guessing it
+      requires the secret. Worth doing wherever the result you report contains anything you
+      would not want a compromised agent key to read back. Rate limits slow enumeration; they
+      do not prevent it.</p>
   </div>
 </section>
 

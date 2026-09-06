@@ -27,6 +27,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { VENDOR_PROFILES } from '../../src/domain/vendor-keys.js';
+import { EVENT_TYPES } from '../../src/domain/events.js';
 
 const ROOT = new URL('../../', import.meta.url).pathname;
 
@@ -147,3 +148,33 @@ function countTestDeclarations(path: string): number {
   for (const entry of readdirSync(path)) n += countTestDeclarations(join(path, entry));
   return n;
 }
+
+/**
+ * Numbers were the first thing to drift. Lists are the second.
+ *
+ * API_AND_DATA_CONTRACTS.md published the webhook event types as prose, and by
+ * the time anyone looked it named eight of the ten that existed —
+ * `circuit.tripped` and `reconciliation.due` had both shipped without the
+ * documentation following. A caller reading that list would subscribe to events
+ * we send and never learn the others were available.
+ *
+ * A published enumeration is a claim about a set. It is checkable in exactly the
+ * way a published figure is.
+ */
+test('the published webhook event list matches the events that exist', () => {
+  const doc = readFileSync(join(ROOT, 'docs/handoff/API_AND_DATA_CONTRACTS.md'), 'utf8');
+  const section = doc.slice(doc.indexOf('## Webhooks'));
+  const published = new Set(
+    [...section.slice(0, section.indexOf('Headers:')).matchAll(/`([a-z]+\.[a-z_]+)`/g)]
+      .map((m) => m[1]!),
+  );
+
+  const actual = new Set<string>(EVENT_TYPES);
+  const missing = [...actual].filter((e) => !published.has(e));
+  const invented = [...published].filter((e) => !actual.has(e));
+
+  assert.deepEqual(missing, [],
+    `Events that exist but are not documented: ${missing.join(', ')}`);
+  assert.deepEqual(invented, [],
+    `Events documented but not emitted — worse than missing, a caller can subscribe to nothing: ${invented.join(', ')}`);
+});

@@ -379,7 +379,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   }
 
   for (const page of ['docs', 'console', 'pricing', 'security', 'start', 'works-with',
-                    'terms', 'privacy', 'status', 'simple', 'benchmark', 'fraud']) {
+                    'terms', 'privacy', 'status', 'simple', 'benchmark', 'fraud',
+                    'verify']) {
     app.get(`/${page}`, { schema: { hide: true } },
       async (_req, reply) => reply.sendFile(`${page}.html`));
   }

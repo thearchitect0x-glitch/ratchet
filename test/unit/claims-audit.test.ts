@@ -181,3 +181,46 @@ test('the published webhook event list matches the events that exist', () => {
   assert.deepEqual(invented, [],
     `Events documented but not emitted — worse than missing, a caller can subscribe to nothing: ${invented.join(', ')}`);
 });
+
+/**
+ * /verify is the page that lists what we do NOT claim, which makes it the page
+ * most likely to drift the wrong way: gaps get closed, the document that
+ * records them gets updated, and the public page keeps confessing to something
+ * that is no longer true — or, worse, stops confessing to something that is.
+ *
+ * These couple the page to the documents that own the facts, so the two cannot
+ * disagree quietly. There is no third-party check for "we have not been
+ * audited"; a test is the only thing that can hold it.
+ */
+test('the /verify page agrees with the documents that own its claims', () => {
+  const at = (f: string) => readFileSync(join(ROOT, f), 'utf8');
+  const verify = at('web/verify.html');
+  const policy = at('docs/OPEN_SOURCE_POLICY.md');
+  const readme = at('README.md');
+
+  // ISO 5230 / 18974: the policy's conformance tables are the record.
+  const unmet = policy.includes('**Not met**');
+  assert.equal(unmet, verify.includes('self-assessed and incomplete'),
+    unmet
+      ? 'OPEN_SOURCE_POLICY.md still records an unmet requirement, so /verify must '
+        + 'keep saying conformance is incomplete'
+      : 'OPEN_SOURCE_POLICY.md no longer records an unmet requirement — /verify is '
+        + 'now confessing to a gap that has been closed, and should be updated');
+
+  // SOC 2 and penetration testing: the README is the record, and it is blunt.
+  assert.ok(readme.includes('There is no SOC 2 report'),
+    'README.md dropped its SOC 2 disclaimer; /verify repeats it and must follow');
+  assert.match(verify, /There is no SOC 2 report/,
+    '/verify must say plainly that there is no SOC 2 report');
+  assert.match(verify, /no penetration test/i,
+    '/verify must say plainly that there has been no penetration test');
+
+  // The word this project cannot use about itself. A badge is not an audit, and
+  // the whole value of the badges is that a reader can check them and disagree.
+  assert.ok(!/\b(we are|Ratchet is|Deimos[^.]{0,30}is) (SOC 2 )?certified\b/i.test(verify),
+    '/verify must never describe Ratchet or Deimos as certified — nothing here is');
+
+  // Exactly-once is the claim the product is built on not making.
+  assert.match(verify, /at-most-once/,
+    '/verify must state the guarantee that is actually made');
+});

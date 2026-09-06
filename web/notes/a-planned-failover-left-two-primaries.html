@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A planned failover left us with two primaries — Ratchet</title>
+<meta name="description" content="A planned Postgres failover promoted a node, failed its health check, gave up, and restarted the old primary. Twenty-five minutes down, no data lost.">
+<link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+<link rel="canonical" href="https://ratchetgate.com/notes/a-planned-failover-left-two-primaries">
+<meta name="theme-color" content="#1c5cff">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Ratchet">
+<meta property="og:title" content="A planned failover left us with two primaries">
+<meta property="og:description" content="A planned Postgres failover promoted a node, failed its health check, gave up, and restarted the old primary. Twenty-five minutes down.">
+<meta property="og:url" content="https://ratchetgate.com/notes/a-planned-failover-left-two-primaries">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="A planned failover left us with two primaries">
+<meta name="twitter:description" content="A planned Postgres failover promoted a node, failed its health check, gave up, and restarted the old primary. Twenty-five minutes down.">
+<link rel="alternate" type="text/plain" href="/llms.txt" title="Ratchet for LLMs — the whole service in one file">
+<link rel="alternate" type="application/json" href="/.well-known/agent-manifest.json" title="Capability manifest">
+<link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI 3.1 specification">
+<link rel="stylesheet" href="/assets/style.css">
+<!-- schema:auto -->
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "BlogPosting",
+ "headline": "A planned failover left us with two primaries",
+ "description": "A planned Postgres failover promoted a node, failed its health check, gave up, and restarted the old primary. Twenty-five minutes down, no data lost.",
+ "datePublished": "2026-09-06",
+ "dateModified": "2026-09-06",
+ "url": "https://ratchetgate.com/notes/a-planned-failover-left-two-primaries",
+ "mainEntityOfPage": {
+  "@type": "WebPage",
+  "@id": "https://ratchetgate.com/notes/a-planned-failover-left-two-primaries"
+ },
+ "image": "https://ratchetgate.com/assets/og.png",
+ "author": {
+  "@type": "Organization",
+  "name": "Deimos AI LLC",
+  "url": "https://deimoscore.com"
+ },
+ "publisher": {
+  "@type": "Organization",
+  "name": "Ratchet",
+  "url": "https://ratchetgate.com",
+  "logo": {
+   "@type": "ImageObject",
+   "url": "https://ratchetgate.com/assets/mark.svg"
+  }
+ }
+}
+</script>
+<!-- /schema:auto -->
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site"></header>
+
+<main id="main">
+<section>
+  <div class="wrap narrow post">
+    <p class="eyebrow"><a href="/notes">Notes</a></p>
+    <h1>A planned failover left us with two primaries</h1>
+    <p class="meta">6 September 2026</p>
+
+    <p class="lede">
+      The primary was measured at <strong>89–91% CPU steal</strong> — receiving roughly a tenth
+      of the processor it was asking for. The same starvation at 23.5% had already stopped a
+      standby replaying twice that day. Moving the primary onto healthy hardware was correct
+      and necessary. It took production down for twenty-five minutes.
+    </p>
+
+    <p>
+      No data was lost. That was not luck.
+    </p>
+
+    <h2>What was done first, deliberately</h2>
+
+    <p>
+      <code>flyctl postgres failover</code> takes no target argument. You cannot say which node
+      to promote — you can only make sure that whichever one it picks is a good choice.
+    </p>
+
+    <p>
+      So both standbys were rebuilt beforehand and verified at 0.0% steal and zero bytes of
+      lag, and a full backup was taken and <strong>verified by restore</strong> immediately
+      before starting. Every one of those steps turned out to matter.
+    </p>
+
+    <h2>What happened</h2>
+
+    <p>
+      The failover promoted a node to a new timeline, then that node failed its health check.
+      The tool gave up and restarted the old primary.
+    </p>
+
+    <p>
+      Which left two nodes believing they were primary — on divergent timelines. The cluster
+      could not agree on who was in charge, and while it could not agree, it could not serve.
+    </p>
+
+    <h2>The lesson we would have preferred to learn on paper</h2>
+
+    <p>
+      A failover command that cannot be told where to go is not a failover command; it is a
+      request. Rebuilding both standbys first was what made the request safe, and it is the
+      only reason this was a twenty-five minute outage rather than a data-loss event.
+    </p>
+
+    <p>
+      The verified-by-restore backup did not end up being needed. It should still be taken
+      every time, because the decision to take it has to be made before you know whether you
+      need it — and a backup nobody has restored is a hypothesis, not a backup.
+    </p>
+
+    <h2>The cause underneath the cause</h2>
+
+    <p>
+      The failover was necessary because the hardware was starved. 89–91% steal is not a
+      database problem, and no amount of tuning fixes it. The database was fine; it was being
+      given a tenth of a CPU.
+    </p>
+
+    <p>
+      That is worth naming because it is easy to spend a day optimising queries on a node that
+      is simply not being scheduled. Measure steal before you measure anything else. If it is
+      high, nothing else you measure means what you think it means.
+    </p>
+
+    <h2>What we changed</h2>
+
+    <p>
+      Replication health is now reported alongside worker liveness, so a divergent or wedged
+      node is visible without anyone going to look. Steal is checked as a first-class signal
+      rather than something noticed during an investigation. And the cluster now runs three
+      nodes across separate zones, so a standby that loses the primary still sees two of three
+      and meets quorum.
+    </p>
+
+    <p class="small faint" style="margin-top:2.5rem">
+      We build <a href="/">Ratchet</a>, a gate that decides whether an AI agent may perform a
+      side effect. This is one of our own incident reports, published because the lesson is
+      not specific to us. The full write-up lives in
+      <a href="https://github.com/thearchitect0x-glitch/ratchet">the repository</a> under
+      <code>docs/handoff/</code>, alongside every other one.
+    </p>
+  </div>
+</section>
+</main>
+<footer class="site"></footer>
+<script type="module" src="/assets/notes.js"></script>
+</body>
+</html>

@@ -20,7 +20,7 @@ import { noticeOverdue } from '../domain/reconciliation.js';
 import { sweepStructuring } from '../domain/structuring-sweep.js';
 import { noticeNewEffectTypes } from '../domain/novel-effect-types.js';
 import { gcWindows as gcFeedbackWindows } from '../domain/feedback.js';
-import { gcProvisionWindows } from '../domain/provisioning.js';
+import { gcProvisionWindows, provisionPressure, provisionState } from '../domain/provisioning.js';
 import { gcRunBudgets } from '../domain/run-budget.js';
 import { deliverDue } from './webhooks.js';
 import { watchChainOnce, expireQuotes } from './chain.js';
@@ -257,6 +257,31 @@ async function main() {
   // Watching the database that is watching everything else. A standby froze for
   // over half an hour with every surface reporting health, and only a migration
   // exposed it — see src/worker/replication.ts.
+  /*
+   * Provisioning pressure, sampled so that there is a record of it.
+   *
+   * `GET /workerz` already reports the current state, but the window is hourly
+   * and resets to zero on the boundary. By the time anyone reads an alert, the
+   * hour that caused it may be gone — so the endpoint can say what is happening
+   * and never what happened. This loop is the only thing that writes it down.
+   *
+   * The numbers go to the log, which is operator-only. The heartbeat note is
+   * what `/workerz` would surface, so it stays a word, and it is set only for
+   * `at_ceiling`: `elevated` is a thing to watch, not a thing to wake up for,
+   * and a note here is how this becomes an email.
+   */
+  loop('provision-watch', 5 * 60_000, async () => {
+    const p = await provisionPressure();
+    const state = provisionState(p);
+    if (state === 'ok') return {};
+    log('warn', 'keyless provisioning under pressure', {
+      state, this_hour: p.thisHour, ceiling: p.ceiling, sources: p.sources,
+    });
+    return state === 'at_ceiling'
+      ? { note: 'keyless provisioning is at its global hourly ceiling' }
+      : {};
+  });
+
   loop('replication-watch', config.worker.replicationCheckIntervalMs, async () => {
     const r = await checkReplication();
     return r.problems.length ? { note: r.problems.join('; ') } : {};

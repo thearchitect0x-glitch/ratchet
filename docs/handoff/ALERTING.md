@@ -98,9 +98,6 @@ worked; shell quoting was the likely culprit throughout.
 ## What is still missing
 
 - Nothing pages. See above.
-- Nothing watches provisioning pressure: `provisionPressure()` exists and no
-  caller reads it, so we would learn we were at the global ceiling from a
-  complaint.
 - No staging environment, so every deploy is tested in production.
 
 ---
@@ -127,6 +124,42 @@ Background and the reasoning behind the byte-distance measure:
 [`INCIDENT_2026-09-01_FROZEN_STANDBY.md`](INCIDENT_2026-09-01_FROZEN_STANDBY.md).
 
 ---
+
+---
+
+## Provisioning pressure (added 6 Sep 2026)
+
+`GET /workerz` reports `provisioning`, and the uptime workflow fails on one value:
+
+| Value | Meaning | Action |
+|---|---|---|
+| `ok` | Headroom available | none |
+| `elevated` | At or past 80% of the global hourly ceiling. The door is still open | Watch. Deliberately does **not** email |
+| `at_ceiling` | The ceiling is spent. Keyless provisioning is refusing **everyone** for the rest of the hour | `flyctl logs -a ratchet-gate \| grep provision-watch`, then decide abuse or demand |
+| *(absent)* | The running build predates this check | The deploy did not land |
+
+**Only `at_ceiling` fails the probe.** `elevated` is somebody pushing while the
+door is still open; making that an email teaches the reader to ignore this
+mailbox, which costs more than the warning is worth.
+
+**It is a 200, not a 503.** Containment working is not worker death: leases are
+still expiring, the gate is still correct, and every request that presents a key
+is completely unaffected. Returning 503 would invite the platform to restart a
+worker that is doing exactly what it should.
+
+**The numbers are never published.** `/workerz` is public and takes no
+credential. The count and the ceiling together tell a stranger precisely how
+many more requests would shut the keyless door on everybody — a recipe, not a
+status. The state word is public; the distance to it stays in the worker's log.
+`test/e2e/workerz.test.ts` asserts this over the whole payload rather than over
+named fields, because a future field that leaks the number will not be called
+`thisHour`.
+
+**Why the `provision-watch` loop exists as well.** The window is hourly and
+resets on the boundary, so the endpoint can say what *is* happening and never
+what *happened*. By the time anyone opens an alert, the hour that caused it may
+be gone. The loop samples every five minutes and is the only thing that writes
+it down.
 
 ## Cadence and what it would cost if the repository were private
 

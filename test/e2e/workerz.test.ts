@@ -113,4 +113,90 @@ describe('worker liveness endpoint', () => {
     const r = await workerz();
     assert.doesNotMatch(r.payload, /super-secret-machine-id/);
   });
+
+  /**
+   * Provisioning pressure, and the one thing this endpoint must not say.
+   *
+   * The keyless `begin` is what lets an agent that found Ratchet on its own
+   * use it, and it is the only place a stranger gets something of value
+   * without presenting anything. The global ceiling is what makes that
+   * affordable. When it is spent, keyless provisioning refuses everyone for
+   * the rest of the hour while the API, the worker, the database and the mail
+   * queue all report themselves perfectly healthy — so this word is the only
+   * public evidence the signup path is down.
+   */
+  describe('provisioning pressure', () => {
+    /*
+     * test/helpers.ts raises this ceiling to 100000 so that the suite is never
+     * throttled by the feature it is exercising. That is right for every other
+     * test and fatal for these, which are ABOUT the ceiling — at 100000 a count
+     * of 200 is healthy, and the first draft of this block asserted `elevated`
+     * against a perfectly correct `ok`. config reads the variable through a
+     * getter for exactly this reason, so setting it here takes effect live.
+     */
+    const CEILING = 250;
+    let previous: string | undefined;
+    before(() => {
+      previous = process.env.PROVISION_GLOBAL_PER_HOUR;
+      process.env.PROVISION_GLOBAL_PER_HOUR = String(CEILING);
+    });
+    after(() => { process.env.PROVISION_GLOBAL_PER_HOUR = previous; });
+
+    const hour = () => new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000);
+    const setGlobal = (count: number) => getPool().query(
+      `INSERT INTO provision_global (hour_start, count) VALUES ($1, $2)
+       ON CONFLICT (hour_start) DO UPDATE SET count = EXCLUDED.count`,
+      [hour(), count]);
+
+    beforeEach(async () => {
+      await getPool().query('DELETE FROM provision_global');
+      await recordOk(`e2e-prov-${Date.now()}`, 'i-1', 2000);
+    });
+
+    test('reads ok while there is headroom', async () => {
+      await setGlobal(1);
+      assert.equal(JSON.parse((await workerz()).payload).provisioning, 'ok');
+    });
+
+    test('warns before the door shuts, not as it shuts', async () => {
+      // 80% of the default 250. An alert that arrives WITH the outage is a
+      // report; the whole value of this one is the fifty slots still left.
+      await setGlobal(200);
+      assert.equal(JSON.parse((await workerz()).payload).provisioning, 'elevated');
+    });
+
+    test('at the ceiling, and still 200 — containment is not worker death', async () => {
+      await setGlobal(250);
+      const r = await workerz();
+      // Not 503. Leases are expiring, the gate is correct, and every keyed
+      // request is completely unaffected. A 503 here would invite the platform
+      // to restart a worker that is doing exactly what it should.
+      assert.equal(r.statusCode, 200);
+      assert.equal(JSON.parse(r.payload).provisioning, 'at_ceiling');
+    });
+
+    /**
+     * The security property, and the reason this is a word rather than a gauge.
+     *
+     * This endpoint is public and takes no credential. The count and the
+     * ceiling together tell an unauthenticated stranger exactly how many more
+     * requests would shut the keyless door on everybody — that is not a status,
+     * it is a recipe. Publishing the state costs nothing; publishing the
+     * distance to it hands over the attack's only unknown.
+     */
+    test('never publishes the count, the ceiling, or the distance between them', async () => {
+      await setGlobal(200);
+      const body = JSON.parse((await workerz()).payload);
+      assert.equal(body.provisioning, 'elevated');
+
+      // Assert over the whole payload, not named fields: a future field that
+      // carries the number is exactly what this test exists to catch, and it
+      // will not be called `thisHour`.
+      const numbers: string[] = JSON.stringify(body).match(/\d+/g) ?? [];
+      for (const forbidden of ['200', '250', '50']) {
+        assert.ok(!numbers.includes(forbidden),
+          `/workerz leaked ${forbidden}; provisioning headroom must not be public`);
+      }
+    });
+  });
 });

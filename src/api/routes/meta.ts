@@ -11,6 +11,7 @@ import { recipes } from '../../domain/integrate.js';
 import { VENDOR_PROFILES, type VendorProfile } from '../../domain/vendor-keys.js';
 import { workerHealth } from '../../worker/heartbeat.js';
 import { emailQueueHealth } from '../../domain/email.js';
+import { provisionPressure, provisionState } from '../../domain/provisioning.js';
 import { timingSafeEqual } from 'node:crypto';
 import { collect as collectMetrics, render as renderMetrics } from '../../domain/operational-metrics.js';
 
@@ -130,11 +131,21 @@ export default async function metaRoutes(app: FastifyInstance) {
       // quota parks every verification link behind it while the API, the
       // worker and the database all report themselves perfectly healthy.
       const mail = await emailQueueHealth();
+      // Provisioning pressure is here for the same reason as both of those: it
+      // is invisible everywhere else, and at the ceiling the keyless signup
+      // path is refusing every caller while the API, the worker, the database
+      // and the mail queue all report themselves perfectly healthy.
+      //
+      // A word, never the numbers. `thisHour` and `ceiling` together tell an
+      // unauthenticated stranger precisely how many more requests would shut
+      // the door on everyone, which is a recipe rather than a status.
+      const provisioning = provisionState(await provisionPressure());
       return {
         status: 'ok',
         loops: h.loops.length,
         replication: rep === undefined ? 'unobserved' : rep.lastError ? 'degraded' : 'ok',
         email: mail.deferred > 0 ? 'quota_exhausted' : mail.deadLastDay > 0 ? 'degraded' : 'ok',
+        provisioning,
       };
     } catch {
       reply.code(503);

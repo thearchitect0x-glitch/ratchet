@@ -93,6 +93,38 @@ for (const p of ['/healthz', '/readyz']) {
   } else if (r.status === 200) {
     fail('email', 'The mail queue did not report its state, so delivery is unknown.');
   }
+
+  /*
+   * The abuse ceiling, which fails silently by design.
+   *
+   * Keyless provisioning stops for EVERYONE when the global hourly ceiling is
+   * spent — that is the containment working, and it is deliberately the same
+   * shape as the surge containment we sell. What was missing is that nothing
+   * said so. Every other surface stays green, because every other surface is
+   * genuinely fine, and the first report would have been a stranger writing in
+   * to say the signup page told them to come back later.
+   *
+   * Only the ceiling fails the probe. `elevated` is somebody pushing while the
+   * door is still open; making that an email teaches the reader to ignore this
+   * mailbox, and the whole point of the streak logic below is that emails from
+   * here should mean something.
+   */
+  const prov = r.json?.provisioning;
+  if (prov === 'at_ceiling') {
+    fail('provisioning', 'Keyless provisioning has spent its global hourly ceiling and is '
+      + 'refusing every caller, including the honest first-time one. Keyed requests are '
+      + 'unaffected. Decide whether this is abuse or genuine demand before raising it: '
+      + 'flyctl logs -a ratchet-gate | grep provision-watch');
+  } else if (prov === 'elevated') {
+    ok('provisioning', 'elevated — headroom shrinking, not yet refusing');
+  } else if (prov === 'ok') {
+    ok('provisioning', 'headroom available');
+  } else if (r.status === 200) {
+    // Absent means the running build predates this check, which is worth
+    // hearing: it says the deploy did not happen, not that provisioning is fine.
+    fail('provisioning', 'The gate did not report provisioning pressure. Either the running '
+      + 'build predates this check, or the field was dropped.');
+  }
 }
 
 // ---- 3. Does the gate still gate? -------------------------------------------

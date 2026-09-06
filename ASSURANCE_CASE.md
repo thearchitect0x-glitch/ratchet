@@ -214,6 +214,21 @@ declared amount cannot downgrade an approval or a denial.
   midnight boundary.
 - **Ceilings are only as good as what callers declare.** Under-declaring is
   possible; `POST /v1/reconcile` against the vendor's own record is what catches it.
+- **A compromised key can read back what it can name.** The threat model's
+  primary adversary is a compromised agent key, and R1–R7 constrain what such a
+  key may *do* — not what it may *learn*. A `duplicate` decision returns the
+  recorded `result` of the earlier attempt, because that is what makes replay
+  work: a caller that retries must get the outcome instead of acting again.
+  It follows that anyone able to **guess an idempotency key** can retrieve the
+  result recorded against it, and the default agent scopes include
+  `effects:read`, so the direct route exists as well.
+
+  This is inherent, not a defect to be fixed: removing it removes replay, which
+  is the feature. What bounds it is the key itself. Where a recorded result is
+  sensitive, **the idempotency key must be unguessable** — `order-42` is
+  enumerable, a random suffix is not. Rate limits slow enumeration; they do not
+  prevent it. Stated here because the assurance case previously argued about
+  what a compromised key could do and never asked what it could see.
 
 Each is tracked in [KNOWN_LIMITATIONS.md](docs/handoff/KNOWN_LIMITATIONS.md) and,
 where it is being addressed, in [ROADMAP.md](ROADMAP.md).

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Every health check was green and the standby was 590 MB behind — Ratchet</title>
+<meta name="description" content="A Postgres standby stopped applying WAL for 34 minutes while every health check returned 200. Why replay_lag reads zero on a broken replica.">
+<link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+<link rel="canonical" href="https://ratchetgate.com/notes/every-health-check-was-green">
+<meta name="theme-color" content="#1c5cff">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Ratchet">
+<meta property="og:title" content="Every health check was green and the standby was 590 MB behind">
+<meta property="og:description" content="A standby stopped replaying for 34 minutes while every health check reported 200. Why replay_lag lies and byte distance does not.">
+<meta property="og:url" content="https://ratchetgate.com/notes/every-health-check-was-green">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Every health check was green and the standby was 590 MB behind">
+<meta name="twitter:description" content="A standby stopped replaying for 34 minutes while every health check reported 200. Why replay_lag lies and byte distance does not.">
+<link rel="alternate" type="text/plain" href="/llms.txt" title="Ratchet for LLMs — the whole service in one file">
+<link rel="alternate" type="application/json" href="/.well-known/agent-manifest.json" title="Capability manifest">
+<link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI 3.1 specification">
+<link rel="stylesheet" href="/assets/style.css">
+<!-- schema:auto -->
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "BlogPosting",
+ "headline": "Every health check was green and the standby was 590 MB behind",
+ "description": "A Postgres standby stopped applying WAL for 34 minutes while every health check returned 200. Why replay_lag reads zero on a broken replica.",
+ "datePublished": "2026-09-06",
+ "dateModified": "2026-09-06",
+ "url": "https://ratchetgate.com/notes/every-health-check-was-green",
+ "mainEntityOfPage": {
+  "@type": "WebPage",
+  "@id": "https://ratchetgate.com/notes/every-health-check-was-green"
+ },
+ "image": "https://ratchetgate.com/assets/og.png",
+ "author": {
+  "@type": "Organization",
+  "name": "Deimos AI LLC",
+  "url": "https://deimoscore.com"
+ },
+ "publisher": {
+  "@type": "Organization",
+  "name": "Ratchet",
+  "url": "https://ratchetgate.com",
+  "logo": {
+   "@type": "ImageObject",
+   "url": "https://ratchetgate.com/assets/mark.svg"
+  }
+ }
+}
+</script>
+<!-- /schema:auto -->
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site"></header>
+
+<main id="main">
+<section>
+  <div class="wrap narrow post">
+    <p class="eyebrow"><a href="/notes">Notes</a></p>
+    <h1>Every health check was green and the standby was 590 MB behind</h1>
+    <p class="meta">6 September 2026</p>
+
+    <p class="lede">
+      On 1 September a Postgres standby stopped applying write-ahead log at 17:31 UTC. It was
+      found 34 minutes later, entirely by accident, when a schema migration succeeded on two
+      nodes and failed on the third. At that point it was roughly <strong>590 MB behind</strong>
+      the primary and serving stale data — 115 workspaces where the primary had 116.
+    </p>
+
+    <p>
+      No customer was affected. Data loss was one failover away.
+    </p>
+
+    <h2>Every surface was green, and each was telling the truth</h2>
+
+    <p>
+      This is the part worth sitting with. Nothing was broken in the monitoring. Every check
+      was working correctly and reporting accurately — about something else.
+    </p>
+
+    <ul>
+      <li><code>/healthz</code> and <code>/readyz</code> returned 200. They check the control
+        plane, not the cluster.</li>
+      <li><code>/workerz</code> returned 200 with every loop running. The worker was fine.</li>
+      <li>The platform reported the node healthy. The <em>machine</em> was healthy. The
+        Postgres process was up, accepting connections, and answering queries — with data
+        frozen at 17:31.</li>
+    </ul>
+
+    <p>
+      A replica that has stopped replaying does not look ill from outside. It looks like a
+      database that is not very busy.
+    </p>
+
+    <h2>The measurement that lies</h2>
+
+    <p>
+      There was a metric that should have caught it. <code>replay_lag</code> read
+      <strong>37 minutes</strong>, which sounds exactly like the alarm you would want. It is
+      not usable, for two reasons that took an incident to understand:
+    </p>
+
+    <ul>
+      <li>It measures how long ago the last <em>applied</em> transaction committed. On a quiet
+        database that is a statement about your traffic, not about your replica.</li>
+      <li>It reads near <strong>zero</strong> on a genuinely broken replica — one that has
+        received nothing new to be late about.</li>
+    </ul>
+
+    <p>
+      So the metric is loudest when nothing is wrong and quietest when everything is. If you
+      alert on <code>replay_lag</code>, you have built an alarm that fires on idleness and
+      stays silent on failure.
+    </p>
+
+    <p>
+      <strong>Byte distance between the primary's WAL position and the standby's replay
+      position is the honest measure.</strong> It does not care how busy you are. It answers
+      the only question that matters: how much of reality is this node missing.
+    </p>
+
+    <h2>A second signature, worth naming separately</h2>
+
+    <p>
+      The frozen node sat at exactly <code>3/B3000000</code> — a WAL segment boundary — while
+      the primary moved on. A replay position that does not advance across successive samples
+      is a <strong>wedged receiver</strong>, and it is dangerous long before the byte distance
+      looks alarming.
+    </p>
+
+    <p>
+      That is a different fault from "falling behind", and it deserves its own alert. Something
+      slowly losing ground is a capacity problem. Something pinned at one position is stuck,
+      and it will never catch up on its own.
+    </p>
+
+    <h2>The fix, and how little it was</h2>
+
+    <p>
+      Restarting the machine cleared it. Replay resumed immediately — 350 MB in the first
+      minute — and the node was fully caught up in about 25 minutes. The replication slot had
+      preserved its position, so nothing needed rebuilding.
+    </p>
+
+    <p>
+      That is the uncomfortable part. The remedy was thirty seconds of work. The exposure was
+      34 minutes of a silent, stale node that any failover would have promoted, and the only
+      reason it was found at all is that somebody happened to deploy a migration.
+    </p>
+
+    <h2>What we changed</h2>
+
+    <p>
+      A watcher now samples the byte distance and the replay position directly, alerts on
+      distance and on non-advancement as separate conditions, and reports a node it cannot
+      reach as <strong>unobserved</strong> rather than healthy. That last distinction matters
+      more than it sounds: a check that could not run has not passed.
+    </p>
+
+    <p>
+      One trap for anyone doing the same on a managed Postgres: inspect nodes on their direct
+      port. Port 5432 is usually a pooler and proxies to the primary, so a standby asked
+      through it will cheerfully tell you it is not in recovery.
+    </p>
+
+    <p class="small faint" style="margin-top:2.5rem">
+      We build <a href="/">Ratchet</a>, a gate that decides whether an AI agent may perform a
+      side effect. This is one of our own incident reports, published because the lesson is
+      not specific to us. The full write-up lives in
+      <a href="https://github.com/thearchitect0x-glitch/ratchet">the repository</a> under
+      <code>docs/handoff/</code>, alongside every other one.
+    </p>
+  </div>
+</section>
+</main>
+<footer class="site"></footer>
+<script type="module" src="/assets/notes.js"></script>
+</body>
+</html>

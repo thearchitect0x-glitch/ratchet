@@ -15,6 +15,7 @@ export const EVENT_TYPES = [
   'budget.exceeded',
   'circuit.tripped',
   'reconciliation.due',
+  'structuring.detected',
   'effect_type.first_seen',
 ] as const;
 

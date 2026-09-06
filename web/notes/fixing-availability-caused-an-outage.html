@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fixing an availability defect caused a twelve-minute outage — Ratchet</title>
+<meta name="description" content="Scaling the control plane from one machine to two pushed a 256MB Postgres into an OOM loop. The connection budget nobody had written down.">
+<link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+<link rel="canonical" href="https://ratchetgate.com/notes/fixing-availability-caused-an-outage">
+<meta name="theme-color" content="#1c5cff">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Ratchet">
+<meta property="og:title" content="Fixing an availability defect caused a twelve-minute outage">
+<meta property="og:description" content="Scaling from one app machine to two pushed Postgres into an OOM loop. The connection budget nobody had written down.">
+<meta property="og:url" content="https://ratchetgate.com/notes/fixing-availability-caused-an-outage">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Fixing an availability defect caused a twelve-minute outage">
+<meta name="twitter:description" content="Scaling from one app machine to two pushed Postgres into an OOM loop. The connection budget nobody had written down.">
+<link rel="alternate" type="text/plain" href="/llms.txt" title="Ratchet for LLMs — the whole service in one file">
+<link rel="alternate" type="application/json" href="/.well-known/agent-manifest.json" title="Capability manifest">
+<link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI 3.1 specification">
+<link rel="stylesheet" href="/assets/style.css">
+<!-- schema:auto -->
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "BlogPosting",
+ "headline": "Fixing an availability defect caused a twelve-minute outage",
+ "description": "Scaling the control plane from one machine to two pushed a 256MB Postgres into an OOM loop. The connection budget nobody had written down.",
+ "datePublished": "2026-09-06",
+ "dateModified": "2026-09-06",
+ "url": "https://ratchetgate.com/notes/fixing-availability-caused-an-outage",
+ "mainEntityOfPage": {
+  "@type": "WebPage",
+  "@id": "https://ratchetgate.com/notes/fixing-availability-caused-an-outage"
+ },
+ "image": "https://ratchetgate.com/assets/og.png",
+ "author": {
+  "@type": "Organization",
+  "name": "Deimos AI LLC",
+  "url": "https://deimoscore.com"
+ },
+ "publisher": {
+  "@type": "Organization",
+  "name": "Ratchet",
+  "url": "https://ratchetgate.com",
+  "logo": {
+   "@type": "ImageObject",
+   "url": "https://ratchetgate.com/assets/mark.svg"
+  }
+ }
+}
+</script>
+<!-- /schema:auto -->
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site"></header>
+
+<main id="main">
+<section>
+  <div class="wrap narrow post">
+    <p class="eyebrow"><a href="/notes">Notes</a></p>
+    <h1>Fixing an availability defect caused a twelve-minute outage</h1>
+    <p class="meta">6 September 2026</p>
+
+    <p class="lede">
+      An audit found a real defect: with a single control-plane machine, every deploy has a
+      window where nothing serves. For a service sitting in the critical path of side effects,
+      that is not acceptable. So we scaled to two. The database then OOM-killed itself in a
+      loop and took the entire service down for about twelve minutes.
+    </p>
+
+    <p>
+      <strong>Cause: mine.</strong> The fix was correct. The arithmetic underneath it was never
+      done.
+    </p>
+
+    <h2>The arithmetic</h2>
+
+    <p>
+      Each application instance opens its own connection pool of <code>DB_POOL_MAX</code>,
+      which was 10. The budget went from 20 connections to 30:
+    </p>
+
+    <pre><code>connections = (app instances + worker instances) x DB_POOL_MAX
+            = (2 + 1) x 10 = 30</code></pre>
+
+    <p>
+      The database was a 256 MB instance. Each Postgres backend costs memory, and thirty
+      backends was more than it had. It began killing its own:
+    </p>
+
+    <pre><code>Out of memory: Killed process 714 (postgres)
+Health check for your postgres role has failed</code></pre>
+
+    <h2>Then the health checks did their job, and that made it worse</h2>
+
+    <p>
+      Both application machines failed <code>/readyz</code> — correctly, because the database
+      really was unavailable. The proxy then had no healthy candidate to route to:
+    </p>
+
+    <pre><code>could not find a good candidate within 40 attempts at load balancing</code></pre>
+
+    <p>
+      Every path returned nothing at all. Not a 500 — <em>no response</em>. Readiness checks
+      behaving exactly as designed converted a degraded database into a total blackout, which
+      is the correct trade in almost every case and worth understanding before you need it.
+    </p>
+
+    <h2>Why it was not caught sooner</h2>
+
+    <p>
+      The health checking was right. What was missing was any notion of a <strong>connection
+      budget</strong> — nothing anywhere related instance count multiplied by pool size to the
+      database's capacity. So scaling looked like a free operation. You add a machine, you get
+      more availability. Nothing in the system said otherwise.
+    </p>
+
+    <p>
+      The 256 MB database was the underlying fragility. It had run fine at 20 connections,
+      which is exactly what made it look adequate. It had no headroom, and the first thing that
+      asked for more took it down.
+    </p>
+
+    <h2>Recovery, in the order it actually worked</h2>
+
+    <ol>
+      <li>Scaled the app back to one machine to halve connection pressure.
+        <strong>Did not recover</strong> — the database was already in an OOM loop and could
+        not restart cleanly.</li>
+      <li>Raised the database to 1 GB. It came back healthy immediately.</li>
+      <li>Verified integrity, including that the receipt hash chain still audited clean after
+        an unclean shutdown. Postgres crash-safety held; no evidence was corrupted.</li>
+      <li>Scaled back to two machines, which now holds.</li>
+    </ol>
+
+    <p>
+      Step one is the instructive one. The intuitive response — undo the change that caused it
+      — did nothing, because by then the cause and the symptom had come apart. The database was
+      not failing because of load any more. It was failing because it was already broken.
+    </p>
+
+    <h2>The rule, written down so it is not rediscovered</h2>
+
+    <p>
+      Before changing instance count or <code>DB_POOL_MAX</code>, check that the database can
+      afford the result. Treat scaling the control plane as a change to the database, because
+      it is one.
+    </p>
+
+    <p>
+      Horizontal scaling is sold as the safe, boring lever. It is safe for the thing you are
+      scaling and a load increase for everything that thing talks to.
+    </p>
+
+    <p class="small faint" style="margin-top:2.5rem">
+      We build <a href="/">Ratchet</a>, a gate that decides whether an AI agent may perform a
+      side effect. This is one of our own incident reports, published because the lesson is
+      not specific to us. The full write-up lives in
+      <a href="https://github.com/thearchitect0x-glitch/ratchet">the repository</a> under
+      <code>docs/handoff/</code>, alongside every other one.
+    </p>
+  </div>
+</section>
+</main>
+<footer class="site"></footer>
+<script type="module" src="/assets/notes.js"></script>
+</body>
+</html>

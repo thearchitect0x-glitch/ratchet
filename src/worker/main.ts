@@ -17,6 +17,7 @@ import { drainExpiredLeases, collectExpiredEffects, collectStaleRecords } from '
 import { chainPendingReceipts, pruneReceipts } from '../domain/receipts.js';
 import { refreshSurgeBaselines } from '../domain/circuit.js';
 import { noticeOverdue } from '../domain/reconciliation.js';
+import { sweepStructuring } from '../domain/structuring-sweep.js';
 import { gcWindows as gcFeedbackWindows } from '../domain/feedback.js';
 import { gcProvisionWindows } from '../domain/provisioning.js';
 import { gcRunBudgets } from '../domain/run-budget.js';
@@ -214,6 +215,22 @@ async function main() {
   // measured in hours, and the sweep notifies once per cadence rather than once
   // per pass.
   loop('reconciliation-due', 60 * 60_000, () => noticeOverdue());
+
+  // Amounts that cluster just under a line. The analysis has existed since
+  // migration 035 and nothing has ever run it — it sat behind
+  // GET /v1/analysis/structuring, which means it ran when somebody was already
+  // suspicious, and the entire value of a bunching comparison is seeing the
+  // pattern before anyone suspects anything.
+  //
+  // Six-hourly, not hourly: the window is thirty days, so the measurement barely
+  // moves between passes, and a finding is announced once rather than once per
+  // sweep. This never refuses anything — the estimator cannot tell structuring
+  // from an ordinary cap, and turning that hint into a refusal would decline
+  // legitimate payments.
+  loop('structuring-sweep', 6 * 60 * 60_000, async () => {
+    const r = await sweepStructuring();
+    return r.announced ? { note: `${r.announced} finding(s) announced` } : {};
+  });
 
   // Money, so: infrequent, and the only loop here that spends any. Five
   // minutes is deliberate — a balance that just crossed a threshold is not an

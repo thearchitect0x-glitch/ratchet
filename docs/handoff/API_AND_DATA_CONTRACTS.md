@@ -470,7 +470,10 @@ asserted by a test that greps responses for stack frames, SQL, and connection st
 
 Events: `effect.succeeded` · `effect.failed` · `effect.indeterminate` ·
 `effect.approval_required` · `effect.approved` · `effect.rejected` · `effect.denied` ·
-`budget.exceeded`
+`budget.exceeded` · `circuit.tripped` · `reconciliation.due` · `structuring.detected`
+
+This list is checked against `EVENT_TYPES` by `test/unit/claims-audit.test.ts`. It was
+stale by two when that check was written.
 
 Headers: `ratchet-delivery-id`, `ratchet-timestamp`, `ratchet-signature`, `idempotency-key`.
 

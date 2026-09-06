@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1220 340" width="1220" height="340" role="img" aria-label="Ratchet — an effect gate for AI agents">
+  <title>Ratchet — an effect gate for AI agents</title>
+
+  <defs>
+    <!-- A cool wash behind the mark, so the blue reads as lit rather than flat. -->
+    <radialGradient id="glow" cx="0.17" cy="0.5" r="0.55">
+      <stop offset="0" stop-color="#1c5cff" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#1c5cff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Painted explicitly: a transparent banner borrows whichever ground GitHub
+       is using, and this has to read the same in light and dark. -->
+  <rect width="1220" height="340" fill="#0b0d12"/>
+  <rect width="1220" height="340" fill="url(#glow)"/>
+
+  <!-- The mark, exactly web/assets/mark.svg on its own 64-unit grid, scaled 2x
+       and placed. Same radius, same stroke weights — it must not drift from the
+       site or the two stop matching. -->
+  <g transform="translate(96 86) scale(2.75)">
+    <rect width="64" height="64" rx="14" fill="#1c5cff"/>
+    <path d="M32 12 51 23v18L32 52 13 41V23L32 12Z" fill="none" stroke="#fff" stroke-width="3.4" stroke-linejoin="round"/>
+    <path d="M22.5 32.5 29 39l13.5-14" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="360" y="150" fill="#e8ebf0"
+        font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="86" font-weight="700" letter-spacing="-2.6">Ratchet</text>
+
+  <text x="364" y="200" fill="#9aa3b4"
+        font-family="ui-serif, Georgia, 'Times New Roman', serif"
+        font-size="30">An effect gate for AI agents.</text>
+
+  <line x1="364" y1="235" x2="1160" y2="235" stroke="#e8ebf0" stroke-opacity="0.14" stroke-width="1"/>
+
+  <!-- The one claim worth putting on a banner, and the one nobody else makes. -->
+  <text x="364" y="268" fill="#6a7486" xml:space="preserve"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="17" letter-spacing="0.4">at-most-once<tspan fill="#1c5cff">  ·  </tspan>never exactly-once<tspan fill="#1c5cff">  ·  </tspan><tspan fill="#e0a340">an unknown outcome stays unknown</tspan></text>
+</svg>

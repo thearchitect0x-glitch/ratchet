@@ -11,6 +11,7 @@ import { stricterThan } from '../rate-limit.js';
  */
 import type { FastifyInstance } from 'fastify';
 import { recordRun, reconciliationStatus, coverage } from '../../domain/reconciliation.js';
+import { matchVendorKeys } from '../../domain/vendor-key-match.js';
 import { getPool } from '../../db/pool.js';
 import { config } from '../../lib/config.js';
 import { wsOf } from '../plugins/auth.js';
@@ -182,26 +183,66 @@ export default async function receiptRoutes(app: FastifyInstance) {
           keys: {
             type: 'array', minItems: 1, maxItems: 1000,
             items: { type: 'string', maxLength: 255 },
-            description: 'The idempotency keys your system should have used.',
+            description: 'The keys your vendor recorded. Which key space they are in '
+              + 'depends on `key_space`.',
+          },
+          key_space: {
+            type: 'string', enum: ['idempotency', 'vendor'], default: 'idempotency',
+            description: 'Which keys you are posting. `idempotency` (the default) means your '
+              + 'own keys. `vendor` means the rtk_ keys Ratchet derived and you sent onward — '
+              + 'what a vendor like Stripe actually recorded. Posting vendor keys as '
+              + '`idempotency` reports everything as ungated, because they are different '
+              + 'key spaces.',
+          },
+          window_days: {
+            type: 'integer', minimum: 1, maximum: 400, default: 30,
+            description: 'Only meaningful with key_space=vendor: how far back to draw '
+              + 'candidate effects from when deriving keys to match against.',
+          },
+          vendor: {
+            type: 'string', maxLength: 32,
+            description: 'Only meaningful with key_space=vendor. The vendor profile whose key '
+              + 'length was applied when the key was issued; keys are truncated per vendor, so '
+              + 'the wrong profile will not match.',
           },
         },
       },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req) => {
-    const b = req.body as { effect_type: string; keys: string[] };
+    const b = req.body as {
+      effect_type: string; keys: string[];
+      key_space?: 'idempotency' | 'vendor'; window_days?: number; vendor?: string;
+    };
     const workspaceId = wsOf(req);
     // Normalised the same way the gate normalises, or a Mac-encoded key would
     // look ungated when it was in fact gated.
     const { normalizeText } = await import('../../lib/ids.js');
     const wanted = [...new Set(b.keys.map(normalizeText))];
 
-    const { rows } = await getPool().query<{ idempotency_key: string; state: string }>(
-      `SELECT idempotency_key, state FROM effects
-        WHERE workspace_id = $1 AND effect_type = $2 AND idempotency_key = ANY($3)`,
-      [workspaceId, b.effect_type, wanted],
-    );
-    const seen = new Map(rows.map((r) => [r.idempotency_key, r.state]));
+    let seen: Map<string, string>;
+    let truncated = false;
+    let examined: number | null = null;
+
+    if (b.key_space === 'vendor') {
+      // The vendor holds the rtk_ key we derived, not the caller's own. Matching
+      // those against effects.idempotency_key would report every action ungated
+      // on a perfectly gated workspace — see domain/vendor-key-match.ts.
+      const m = await matchVendorKeys(getPool(), workspaceId, b.effect_type, wanted, {
+        ...(b.window_days ? { windowDays: b.window_days } : {}),
+        ...(b.vendor ? { vendor: b.vendor } : {}),
+      });
+      seen = new Map([...m.matched].map(([vendorKey, v]) => [vendorKey, v.state]));
+      truncated = m.truncated;
+      examined = m.examinedEffects;
+    } else {
+      const { rows } = await getPool().query<{ idempotency_key: string; state: string }>(
+        `SELECT idempotency_key, state FROM effects
+          WHERE workspace_id = $1 AND effect_type = $2 AND idempotency_key = ANY($3)`,
+        [workspaceId, b.effect_type, wanted],
+      );
+      seen = new Map(rows.map((r) => [r.idempotency_key, r.state]));
+    }
     const ungated = wanted.filter((k) => !seen.has(k));
 
     // Counts only, and deliberately: see migration 037. Recording the run is
@@ -210,16 +251,28 @@ export default async function receiptRoutes(app: FastifyInstance) {
     await recordRun(getPool(), workspaceId, b.effect_type,
       { checked: wanted.length, gated: seen.size, ungated: ungated.length });
 
+    // A partial examination is reported as partial. An effect we did not look at
+    // is not an ungated one, and saying otherwise would be the same lie as
+    // resolving an expired lease to `succeeded` because it reads better.
+    const meaning = truncated
+      ? `Examined ${examined} effects and reached the limit, so this answer is incomplete: `
+        + `${ungated.length} key(s) went unmatched, but some may belong to effects not `
+        + 'examined. Narrow window_days and run again before treating any as ungated.'
+      : ungated.length === 0
+        ? 'Every action you listed went through the gate.'
+        : `${ungated.length} action(s) reached the vendor without ever asking Ratchet. `
+          + 'Those code paths are unprotected: a retry there can act twice.';
+
     return {
       effect_type: b.effect_type,
+      key_space: b.key_space ?? 'idempotency',
       checked: wanted.length,
       gated: seen.size,
       ungated: ungated.length,
       ungated_keys: ungated.slice(0, 100),
-      meaning: ungated.length === 0
-        ? 'Every action you listed went through the gate.'
-        : `${ungated.length} action(s) reached the vendor without ever asking Ratchet. `
-          + 'Those code paths are unprotected: a retry there can act twice.',
+      ...(examined !== null ? { examined_effects: examined } : {}),
+      ...(truncated ? { partial: true } : {}),
+      meaning,
     };
   });
 

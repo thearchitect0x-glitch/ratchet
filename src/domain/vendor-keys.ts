@@ -176,6 +176,22 @@ export const VENDOR_PROFILES: Record<string, VendorProfile> = {
   },
 };
 
+/**
+ * The vendors a person can look up, which is not every profile.
+ *
+ * `generic` is the fallback for a vendor we have not characterised: it says
+ * "if this one deduplicates, the key is safe; if not, the key is still useful
+ * for reconciliation". That is a sensible default and a nonsense directory
+ * entry — nobody integrates with "generic".
+ *
+ * So there are two true counts, and conflating them is how a correct sentence
+ * gets called wrong: THIRTEEN profiles exist, TWELVE vendors are listed. Both
+ * the public route and the test that polices published counts read this, so
+ * they cannot disagree about which is which.
+ */
+export const DIRECTORY_PROFILES = Object.values(VENDOR_PROFILES)
+  .filter((v) => v.vendor !== 'generic');
+
 export interface VendorKey {
   key: string;
   vendor: string;

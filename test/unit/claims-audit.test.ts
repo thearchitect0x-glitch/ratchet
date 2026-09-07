@@ -26,7 +26,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { VENDOR_PROFILES } from '../../src/domain/vendor-keys.js';
+import { VENDOR_PROFILES, DIRECTORY_PROFILES } from '../../src/domain/vendor-keys.js';
 import { EVENT_TYPES } from '../../src/domain/events.js';
 
 const ROOT = new URL('../../', import.meta.url).pathname;
@@ -124,18 +124,42 @@ test('test counts are either anchored to a file or written as a floor', () => {
   assert.deepEqual(offenders, [], `Test-count claims that will go stale:\n${offenders.join('\n')}`);
 });
 
-test('vendor counts in living documents match the profiles that exist', () => {
-  const actual = Object.keys(VENDOR_PROFILES).length;
+/**
+ * Two true counts, and they are not interchangeable.
+ *
+ * THIRTEEN profiles exist. TWELVE vendors are listed, because `generic` is the
+ * fallback for a vendor we have not characterised — a sensible default and a
+ * nonsense directory entry, since nobody integrates with "generic".
+ *
+ * This check used to compare every phrasing against the profile count, so a
+ * writer describing the public directory accurately as "12 vendors" would be
+ * told they were wrong while the inaccurate "13 vendors" passed. It enforced
+ * the wrong number for the more likely sentence.
+ */
+test('vendor counts match the count each phrasing actually refers to', () => {
+  const profiles = Object.keys(VENDOR_PROFILES).length;
+  const listed = DIRECTORY_PROFILES.length;
+  assert.ok(profiles > listed, 'the directory should exclude at least the generic fallback');
+
   const wrong: string[] = [];
   for (const doc of livingDocuments()) {
     const text = readFileSync(doc, 'utf8');
-    for (const m of text.matchAll(/(\d+)\s+vendor(?:s| profiles)\b/g)) {
-      if (Number(m[1]) !== actual) {
-        wrong.push(`${rel(doc)}: claims ${m[1]} vendors, ${actual} profiles exist`);
+    for (const m of text.matchAll(/(\d+)\s+vendor(\s+profiles|s)\b/g)) {
+      const claimed = Number(m[1]);
+      const isProfiles = (m[2] ?? '').includes('profile');
+      const expected = isProfiles ? profiles : listed;
+      if (claimed !== expected) {
+        wrong.push(
+          `${rel(doc)}: claims ${claimed} vendor${isProfiles ? ' profiles' : 's'}, but `
+          + `${expected} ${isProfiles ? 'profiles exist' : 'are listed in the directory'}`
+          + (claimed === (isProfiles ? listed : profiles)
+            ? ` — that is the other count. ${profiles} profiles exist, ${listed} are listed;`
+              + ' generic is a fallback, not a directory entry.'
+            : ''));
       }
     }
   }
-  assert.deepEqual(wrong, [], `Vendor counts out of step with VENDOR_PROFILES:\n${wrong.join('\n')}`);
+  assert.deepEqual(wrong, [], `Vendor counts out of step:\n${wrong.join('\n')}`);
 });
 
 /**

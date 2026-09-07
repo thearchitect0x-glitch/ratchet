@@ -418,20 +418,34 @@ idempotency_key = hmac_sha256(YOUR_SECRET, key).hexdigest()[:32]</code></pre>
       Branch on <code>code</code>; it is stable.</p>
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Status</th><th>Code</th><th>Meaning</th></tr></thead>
+        <thead><tr><th>Status</th><th>Code</th><th>Meaning</th><th>Worth retrying?</th></tr></thead>
         <tbody>
-          <tr><td>400</td><td class="mono small">invalid_request</td><td class="small">Schema validation failed. <code>detail.validation</code> says where.</td></tr>
-          <tr><td>401</td><td class="mono small">unauthorized</td><td class="small">Missing, malformed, or revoked key.</td></tr>
-          <tr><td>402</td><td class="mono small">insufficient_credit</td><td class="small">Allowance exhausted and balance too low. Replays still work.</td></tr>
-          <tr><td>403</td><td class="mono small">forbidden</td><td class="small">Missing scope. <code>detail.required</code> names it.</td></tr>
-          <tr><td>403</td><td class="mono small">budget_exceeded</td><td class="small">A daily spend ceiling would be breached.</td></tr>
-          <tr><td>403</td><td class="mono small">cost_ceiling_exceeded</td><td class="small">Declared cost exceeds the per-effect maximum.</td></tr>
-          <tr><td>404</td><td class="mono small">not_found</td><td class="small">No such record in this workspace.</td></tr>
-          <tr><td>409</td><td class="mono small">idempotency_key_reuse</td><td class="small">Same key, different payload.</td></tr>
-          <tr><td>409</td><td class="mono small">lease_lost</td><td class="small">Your lease was superseded. Do not assume your work counted.</td></tr>
-          <tr><td>409</td><td class="mono small">invalid_state</td><td class="small">The transition is not legal from the current state.</td></tr>
-          <tr><td>413</td><td class="mono small">payload_too_large</td><td class="small">Store large outputs elsewhere; record a reference.</td></tr>
-          <tr><td>429</td><td class="mono small">rate_limited</td><td class="small"><code>detail.retry_after_seconds</code> says how long to wait.</td></tr>
+          <tr><td>400</td><td class="mono small">invalid_request</td><td class="small">Schema validation failed. <code>detail.validation</code> says where.</td><td class="small"><span class="pill stop">do not</span> Not until the request changes. The same body will fail identically.</td></tr>
+          <tr><td>400</td><td class="mono small">cost_required</td><td class="small">This effect type requires a declared cost and none was sent.</td><td class="small"><span class="pill wait">change first</span> Send <code>cost_micros</code>, then retry.</td></tr>
+          <tr><td>400</td><td class="mono small">dimension_required</td><td class="small">A dimension the policy keys a ceiling on was not declared.</td><td class="small"><span class="pill wait">change first</span> Declare it — <code>detail</code> names which — then retry.</td></tr>
+          <tr><td>400</td><td class="mono small">invalid_payment</td><td class="small">The payment header is not base64-encoded JSON.</td><td class="small"><span class="pill stop">do not</span> Not until the payment payload is rebuilt.</td></tr>
+          <tr><td>400</td><td class="mono small">approval_threshold_above_ceiling</td><td class="small"><code>approval_above_micros</code> sits above <code>max_cost_micros</code>, so it could never fire.</td><td class="small"><span class="pill stop">do not</span> Configuration, not traffic. Fix the policy.</td></tr>
+          <tr><td>401</td><td class="mono small">unauthorized</td><td class="small">Missing, malformed, or revoked key.</td><td class="small"><span class="pill stop">do not</span> Not with this key. A revoked key never becomes valid again.</td></tr>
+          <tr><td>402</td><td class="mono small">insufficient_credit</td><td class="small">Allowance exhausted and balance too low. Replays still work.</td><td class="small"><span class="pill wait">change first</span> After a top-up. Retrying sooner returns the same answer.</td></tr>
+          <tr><td>402</td><td class="mono small">quota_exhausted</td><td class="small">The free allowance for this workspace is spent.</td><td class="small"><span class="pill wait">change first</span> After adding a payment method or on the next period.</td></tr>
+          <tr><td>403</td><td class="mono small">forbidden</td><td class="small">Missing scope, or the plan does not carry the capability. <code>detail.required</code> names it.</td><td class="small"><span class="pill stop">do not</span> Not until the key's scopes or the plan change.</td></tr>
+          <tr><td>403</td><td class="mono small">budget_exceeded</td><td class="small">A spend ceiling would be breached. <code>detail.resets_at</code> says when the window rolls.</td><td class="small"><span class="pill wait">change first</span> After the window resets, or after the ceiling is raised. Not before.</td></tr>
+          <tr><td>403</td><td class="mono small">cost_ceiling_exceeded</td><td class="small">The declared cost is above the per-effect maximum.</td><td class="small"><span class="pill stop">do not</span> Not at this cost. Lower it or raise the ceiling.</td></tr>
+          <tr><td>403</td><td class="mono small">run_budget_exceeded</td><td class="small">This run has spent its own wallet.</td><td class="small"><span class="pill stop">do not</span> Not in this run. A new run gets a new wallet.</td></tr>
+          <tr><td>404</td><td class="mono small">not_found</td><td class="small">No such record in this workspace. Cross-tenant lookups return this too, never a hint.</td><td class="small"><span class="pill stop">do not</span> Not unless the record is created.</td></tr>
+          <tr><td>409</td><td class="mono small">idempotency_key_reuse</td><td class="small">Same key, different payload fingerprint.</td><td class="small"><span class="pill stop">do not</span> Never unchanged — this is a bug in the caller. Send the original payload, or a new key for genuinely new work.</td></tr>
+          <tr><td>409</td><td class="mono small">invalid_state</td><td class="small">The transition is not legal from the current state.</td><td class="small"><span class="pill stop">do not</span> Re-read the effect first. Retrying blind will fail the same way.</td></tr>
+          <tr><td>409</td><td class="mono small">lease_expired</td><td class="small">The lease expired, so the outcome is recorded as <code>indeterminate</code>.</td><td class="small"><span class="pill wait">change first</span> Not this lease — it is gone. Call <code>begin</code> again, and treat the earlier attempt's outcome as unknown.</td></tr>
+          <tr><td>409</td><td class="mono small">lease_lost</td><td class="small">A newer attempt superseded your lease.</td><td class="small"><span class="pill stop">do not</span> <strong>Do not assume your work counted.</strong> Someone else holds the lease now.</td></tr>
+          <tr><td>409</td><td class="mono small">retry_request</td><td class="small">The effect record changed concurrently under you.</td><td class="small"><span class="pill go">retry</span> Immediately. This is optimistic-concurrency loss, not a refusal.</td></tr>
+          <tr><td>409</td><td class="mono small">group_unwinding</td><td class="small">The effect group is being compensated.</td><td class="small"><span class="pill stop">do not</span> Not into this group. Start a new one if the work is genuinely new.</td></tr>
+          <tr><td>409</td><td class="mono small">transaction_already_used</td><td class="small">That chain transaction was already submitted for another payment.</td><td class="small"><span class="pill stop">do not</span> Never. Reusing it is either a mistake or an attempt to pay twice.</td></tr>
+          <tr><td>409</td><td class="mono small">mfa_already_enabled</td><td class="small">Two-factor is already on for this account.</td><td class="small"><span class="pill stop">do not</span> Nothing to do.</td></tr>
+          <tr><td>413</td><td class="mono small">payload_too_large</td><td class="small">The body or result exceeds the published limit.</td><td class="small"><span class="pill stop">do not</span> Not unchanged. Store the output elsewhere and record a reference.</td></tr>
+          <tr><td>429</td><td class="mono small">rate_limited</td><td class="small"><code>detail.retry_after_seconds</code> says how long to wait.</td><td class="small"><span class="pill go">retry</span> After the interval given. Sooner is refused and still counts.</td></tr>
+          <tr><td>500</td><td class="mono small">internal_error</td><td class="small">Carries a request id and nothing else, deliberately.</td><td class="small"><span class="pill go">retry</span> With backoff. Quote the request id if it persists.</td></tr>
+          <tr><td>502</td><td class="mono small">payment_provider_error</td><td class="small">The payment provider failed upstream.</td><td class="small"><span class="pill go">retry</span> With backoff. Nothing about your request was wrong.</td></tr>
+          <tr><td>503</td><td class="mono small">billing_unavailable</td><td class="small">No live payment provider is configured.</td><td class="small"><span class="pill go">retry</span> With backoff, though this usually needs an operator, not patience.</td></tr>
         </tbody>
       </table>
     </div>

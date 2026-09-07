@@ -476,6 +476,25 @@ Events: `effect.succeeded` · `effect.failed` · `effect.indeterminate` ·
 This list is checked against `EVENT_TYPES` by `test/unit/claims-audit.test.ts`. It was
 stale by two when that check was written, and this merge added a twelfth.
 
+### A recurring event needs something in its payload that varies
+
+`enqueueEvent` derives its dedupe key from `sha256(eventType + JSON.stringify(payload))`
+and inserts `ON CONFLICT (endpoint_id, dedupe_key) DO NOTHING`. That is right for a
+retried transaction and a trap for anything that reports the same condition more than
+once.
+
+`structuring.detected` fell into it. Every field in its payload was a function of the
+same counts, so a finding that had **not changed** hashed identically to its previous
+announcement and the delivery was silently dropped — while the sweep still updated
+`notified_at` and went quiet for another cooldown. The re-announcement its own docstring
+promises could never reach a subscriber. It now carries `announced_at`, the sweep's
+clock, which differs between sweeps and is reproduced exactly by a retry within one.
+
+**Before adding an event that can fire twice for the same condition, ask what in its
+payload will differ the second time.** If the answer is nothing, the second one does not
+exist. Found by `test/integration/structuring-sweep.test.ts`, which was written to raise
+coverage and found a defect instead.
+
 Headers: `ratchet-delivery-id`, `ratchet-timestamp`, `ratchet-signature`, `idempotency-key`.
 
 ```

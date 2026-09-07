@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check us yourself — Ratchet</title>
+<meta name="description" content="Every claim Ratchet makes about itself, the figure, and the third-party link that settles it without taking our word — including the claims we do not make.">
+<link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/mark.svg">
+<link rel="canonical" href="https://ratchetgate.com/verify">
+<meta name="theme-color" content="#1c5cff">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Ratchet">
+<meta property="og:title" content="Check us yourself — Ratchet">
+<meta property="og:description" content="Every claim Ratchet makes about itself, the figure, and the third-party link that settles it — including the claims we do not make.">
+<meta property="og:url" content="https://ratchetgate.com/verify">
+<meta property="og:image" content="https://ratchetgate.com/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Check us yourself — Ratchet">
+<meta name="twitter:description" content="Every claim Ratchet makes about itself, the figure, and the third-party link that settles it — including the claims we do not make.">
+<meta name="twitter:image" content="https://ratchetgate.com/assets/og.png">
+<link rel="alternate" type="text/plain" href="/llms.txt" title="Ratchet for LLMs — the whole service in one file">
+<link rel="alternate" type="application/json" href="/.well-known/agent-manifest.json" title="Capability manifest">
+<link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI 3.1 specification">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site"></header>
+
+<main id="main">
+<section>
+  <div class="wrap reading">
+    <p class="eyebrow">Claims and evidence</p>
+    <h1>Don't take our word for it.</h1>
+    <p class="lede">
+      Ratchet is sold on the idea that a claim about a side effect should be checkable rather
+      than trusted. It would be strange to ask that of an agent and not of ourselves. So here is
+      every claim this project makes about itself, the figure, and the link that settles it —
+      including the ones we would rather not print.
+    </p>
+    <p>
+      Every row below is checked by somebody who is not us, or by a test that fails the build
+      when the number and the claim disagree. Where neither is true, the row says so.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Checked by someone else</h2>
+    <p class="muted" style="margin-top:.5rem">
+      Nothing in this table is self-reported. Each link recomputes the answer from our public
+      repository on demand — including if we break it.
+    </p>
+    <div class="grid two" style="margin-top:1.25rem">
+      <div class="card">
+        <h3>OpenSSF Best Practices — silver</h3>
+        <p>
+          Passing 100%, silver 100%, gold 83%. Every answer is published with its
+          justification, so a reader can disagree with a specific one rather than
+          with the badge.
+        </p>
+        <p><a href="https://www.bestpractices.dev/projects/14440">Read all the answers &rarr;</a></p>
+      </div>
+      <div class="card">
+        <h3>REUSE 3.3 — compliant</h3>
+        <p>
+          Every file in the repository carries machine-readable licence and copyright
+          information, and CI fails on a new file without it. The count is recomputed by
+          the REUSE API against our latest commit, not by us — so the link is the figure.
+        </p>
+        <p><a href="https://api.reuse.software/info/github.com/thearchitect0x-glitch/ratchet">See the lint output &rarr;</a></p>
+      </div>
+      <div class="card">
+        <h3>OpenSSF Scorecard</h3>
+        <p>
+          Computed, not claimed. An automated audit of branch protection, pinned
+          dependencies, signed releases, dangerous workflows and more, run against
+          the repository on a schedule.
+        </p>
+        <p><a href="https://scorecard.dev/viewer/?uri=github.com/thearchitect0x-glitch/ratchet">See the score &rarr;</a></p>
+      </div>
+      <div class="card">
+        <h3>The source</h3>
+        <p>
+          Apache-2.0, public, and the same code that is running. Clone it, run
+          <code>npm test</code>, and disagree with any line on this page.
+        </p>
+        <p><a href="https://github.com/thearchitect0x-glitch/ratchet">Read the repository &rarr;</a></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap reading">
+    <h2>What we do not claim</h2>
+    <p>
+      This is the section most pages like this leave out, which is exactly why it is here.
+      A list of achievements with no matching list of gaps tells you nothing, because you
+      cannot tell what was omitted.
+    </p>
+    <ul class="checks">
+      <li>
+        <strong>There is no SOC 2 report.</strong> A gap analysis exists and controls
+        are being written, but no auditor has been engaged and no observation window has
+        started. Anyone who tells you a nine-day-old company is SOC 2 certified is
+        describing a different company.
+      </li>
+      <li>
+        <strong>There has been no penetration test</strong> and no third-party security audit.
+      </li>
+      <li>
+        <strong>ISO/IEC 5230 and 18974 conformance is self-assessed and incomplete.</strong>
+        One requirement is unmet in both — we have no retained legal counsel for licence
+        questions — and conformance has deliberately not been submitted while that is true.
+      </li>
+      <li>
+        <strong>The badges above are badges, not certifications.</strong> Best Practices is
+        self-attested; its value is that every answer is public and you can call one wrong.
+        Scorecard and REUSE are computed by others. None of the three is an audit.
+      </li>
+      <li>
+        <strong>Exactly-once delivery is impossible and we never claim it.</strong> Ratchet
+        guarantees at-most-once <em>initiation</em>, enforced by a database constraint, and
+        makes the unknown case explicit instead of guessing. That is a different and smaller
+        promise, and it is the honest one.
+      </li>
+    </ul>
+    <p>
+      The same list, in more detail and kept current, is in
+      <a href="https://github.com/thearchitect0x-glitch/ratchet/blob/main/docs/handoff/KNOWN_LIMITATIONS.md">KNOWN_LIMITATIONS.md</a>.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap reading">
+    <h2>How it was built, without the flattering edit</h2>
+    <p>
+      The first commit landed on <strong>29 August 2026</strong>. The service was deployed,
+      tested and documented, with the compliance work above already done, by
+      <strong>6 September</strong>. That is checkable rather than asserted: the commit history
+      is public and timestamped, and no part of it was rewritten to look better.
+    </p>
+    <p>
+      Two things about it that a reader deserves without having to dig:
+    </p>
+    <ul class="checks">
+      <li>
+        <strong>It was built by one person with an AI pair.</strong> Every commit carries a
+        <code>Co-Authored-By</code> line saying so. That is not a disclosure being made
+        reluctantly here — it is in the history, on every commit, and always was.
+      </li>
+      <li>
+        <strong>Most of it reached <code>main</code> without a second pair of human eyes.</strong>
+        A second engineer has reviewed the code and a partner holds admin, but the review
+        <em>record</em> is thin, and we count that against ourselves rather than rounding it up.
+        It is why one OpenSSF criterion is still unmet.
+        <a href="https://github.com/thearchitect0x-glitch/ratchet/blob/main/docs/CODE_REVIEW.md">What review means here</a>.
+      </li>
+    </ul>
+    <p>
+      Speed is not the argument. A gate that decides whether real money moves earns trust from
+      its failure modes, not its velocity — which is why the
+      <a href="/notes">engineering notes</a> are mostly about things that broke: a planned
+      failover that left two primaries, a health check that was green through an outage,
+      a bug that only appeared on macOS.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap reading">
+    <h2>The claims police themselves</h2>
+    <p>
+      Numbers on a marketing page rot. Ours are wired to a test that fails the build when a
+      published figure and the code disagree —
+      <a href="https://github.com/thearchitect0x-glitch/ratchet/blob/main/test/unit/claims-audit.test.ts">claims-audit.test.ts</a>
+      checks that the coverage floors we advertise are the floors CI enforces, that the vendor
+      count in our documents matches the vendor profiles that exist, and that the webhook events
+      we publish are the events the code can actually emit.
+    </p>
+    <p>
+      It was written because we found four public figures that had quietly gone stale in a
+      single afternoon. It has caught more since. That is the point of it: a claim nobody checks
+      is a claim that is eventually wrong.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap reading">
+    <h2>Who</h2>
+    <p>
+      Ratchet is a product of <strong>Deimos AI LLC</strong>, three people across Los Angeles,
+      California and Baja California, Mexico. It is maintained by
+      <a href="https://github.com/thearchitect0x-glitch">@thearchitect0x-glitch</a>, with
+      <a href="https://github.com/mlimano5">@mlimano5</a> as the second administrator.
+      Governance, including what a successor would need, is written down in
+      <a href="https://github.com/thearchitect0x-glitch/ratchet/blob/main/GOVERNANCE.md">GOVERNANCE.md</a>.
+    </p>
+    <p>
+      Found something on this page that is wrong?
+      <a href="https://github.com/thearchitect0x-glitch/ratchet/issues">Open an issue</a> — that
+      is a better outcome for us than for it to stay up.
+    </p>
+  </div>
+</section>
+</main>
+
+<footer class="site"></footer>
+<script type="module" src="/assets/verify.js"></script>
+</body>
+</html>

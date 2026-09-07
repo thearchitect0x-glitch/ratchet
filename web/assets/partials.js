@@ -115,6 +115,7 @@ export function mountChrome(current) {
           <ul>
             <li><a href="/status">Status</a></li>
             <li><a href="/security">Security posture</a></li>
+            <li><a href="/verify">Check us yourself</a></li>
             <li><a href="/healthz" target="_blank" rel="noopener">Health<span class="fmt">JSON</span></a></li>
             <li><a href="/readyz" target="_blank" rel="noopener">Readiness<span class="fmt">JSON</span></a></li>
             <li><a href="/docs#crypto">Crypto payments</a></li>

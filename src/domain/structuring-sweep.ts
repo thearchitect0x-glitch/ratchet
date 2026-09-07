@@ -129,6 +129,19 @@ async function announceOnce(
     // part an operator acts on: bunching spread across many destinations is
     // usually a cap, bunching at one destination is the shape worth opening.
     await enqueueEvent(tx, workspaceId, 'structuring.detected', {
+      // The sweep's clock, and it is load-bearing rather than informational.
+      // enqueueEvent derives its dedupe key from the payload, and everything
+      // else here is a function of the same counts — so a finding that has NOT
+      // changed hashes identically to its last announcement and the delivery is
+      // dropped by ON CONFLICT DO NOTHING. That is precisely the case the
+      // cooldown exists to serve: speak again about a steady finding after
+      // COOLDOWN_DAYS. Without this field it could update notified_at, go quiet
+      // for another week, and never reach a subscriber at all.
+      //
+      // It is `now` rather than `new Date()` deliberately. Within one sweep a
+      // retried transaction reproduces the same value, so genuine retry dedupe
+      // still works; only a separate sweep is a separate announcement.
+      announced_at: now.toISOString(),
       effect_type: f.effectType,
       threshold_micros: f.thresholdMicros,
       threshold_source: f.thresholdSource,

@@ -12,7 +12,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const load = (p: string): Promise<any> => import(p);
-const { strip, stripTags, decode, jsonForScriptBlock } =
+const { strip, stripTags, stripTagsCounted, decode, jsonForScriptBlock } =
   await load('../../scripts/lib/html-text.mjs');
 
 describe('stripping tags', () => {
@@ -42,28 +42,28 @@ describe('stripping tags', () => {
   });
 
   /**
-   * The honest scope of the loop, recorded so nobody "simplifies" it back on
-   * the belief it is load-bearing today — and nobody claims it fixed a bug.
+   * The honest scope of the loop, verified rather than asserted in a comment.
    *
-   * For this regex a single pass is already a fixpoint. Verified exhaustively
-   * here rather than asserted in a comment, because a comment cannot fail.
+   * For this regex a single pass is already a fixpoint, so the loop never does
+   * a second round of work today. It is kept because it makes the invariant
+   * true by construction rather than as a property of one particular pattern —
+   * narrow that regex later, to `<script>` as people do, and the single-pass
+   * version silently becomes exploitable while this one does not.
+   *
+   * `stripTagsCounted` reports the passes so this can be checked WITHOUT
+   * writing the unsafe single-pass form out again. Putting that form in a test
+   * file does not make it safe, it just moves it — and it is what CodeQL was
+   * quite reasonably flagging.
    */
-  test('for this regex one pass already equals the fixpoint', () => {
-    // This is the unsafe single-pass form on purpose: it is the control the
-    // fixpoint is compared against, and it is never given real input. Suppressed
-    // rather than disguised — building the same regex dynamically would hide it
-    // from the scanner while leaving the code identical, which is evasion, not
-    // safety.
-    // codeql[js/incomplete-multi-character-sanitization]
-    const onePass = (x: string) => x.replace(/<[^>]*>/g, '');
+  test('one pass is always enough for this regex, so the loop is not load-bearing yet', () => {
     const alphabet = ['<', '>', 'a', 'b', '/', '"', ' '];
     let checked = 0;
     const walk = (depth: number, acc: string) => {
       if (depth === 0) {
         checked += 1;
-        assert.equal(onePass(acc), stripTags(acc),
-          `single pass and fixpoint disagree on ${JSON.stringify(acc)} — the loop `
-          + 'is now load-bearing, and its comment saying otherwise is wrong');
+        assert.ok(stripTagsCounted(acc).passes <= 1,
+          `${JSON.stringify(acc)} needed a second pass — the loop is now load-bearing, `
+          + 'and the comment in html-text.mjs saying otherwise has become wrong');
         return;
       }
       for (const c of alphabet) walk(depth - 1, acc + c);

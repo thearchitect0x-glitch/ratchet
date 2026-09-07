@@ -39,11 +39,23 @@ export const decode = (s) => s
  *
  * The defence that actually matters is jsonForScriptBlock below. That one was
  * a real hole.
- */export const stripTags = (s) => {
+ */export const stripTags = (s) => stripTagsCounted(s).text;
+
+/**
+ * The same thing, reporting how many passes it took.
+ *
+ * Exists so a test can assert "one pass is enough for this regex" without
+ * writing the single-pass form out again — which is the unsafe pattern, and
+ * putting it in a test file only moves it. The claim stays continuously
+ * verified instead of living in a comment that cannot fail.
+ */
+export const stripTagsCounted = (s) => {
   let prev;
   let out = s;
-  do { prev = out; out = out.replace(/<[^>]*>/g, ''); } while (out !== prev);
-  return out;
+  let passes = 0;
+  do { prev = out; out = out.replace(/<[^>]*>/g, ''); passes += 1; } while (out !== prev);
+  // The final pass is the one that changed nothing; it is confirmation, not work.
+  return { text: out, passes: passes - 1 };
 };
 
 /**

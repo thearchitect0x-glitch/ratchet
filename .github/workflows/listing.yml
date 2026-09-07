@@ -1,0 +1,60 @@
+# Does the world still say about us what we say about ourselves?
+#
+# The MCP Registry is canonical — Glama, mcp.so and Smithery consume its data,
+# so whatever it says is what every marketplace tells people to install.
+#
+# scripts/publish-registry.sh already refuses to publish a listing that
+# disagrees with the package it points at. That protects the moment of
+# publishing and nothing else: a listing goes stale because the repository moved
+# on, not because somebody edited the listing. Its own header records what that
+# cost — on 6 Sep 2026 the registry said 0.1.1 while npm shipped 0.2.1, and
+# "nothing anywhere would ever have said so". This is the thing that says so.
+#
+# Daily, not every fifteen minutes. This drifts on the timescale of releases,
+# and a check that runs ninety-six times a day to watch something that changes
+# monthly is how a mailbox gets muted.
+name: listing
+
+on:
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: listing
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: The registry, npm and the repository must agree
+        run: node scripts/listing-check.mjs
+
+      - name: Say what to do about it
+        if: failure()
+        run: |
+          {
+            echo "## The published listing is out of step"
+            echo
+            echo "Every marketplace that reads the MCP Registry is telling people to"
+            echo "install a version that is not what \`npx ratchet-mcp\` fetches."
+            echo
+            echo "Republish the listing:"
+            echo
+            echo '```bash'
+            echo "npm run publish:registry"
+            echo '```'
+            echo
+            echo "It needs the signing key, which never leaves the operator's machine,"
+            echo "so this cannot be automated here and is not meant to be."
+          } >> "$GITHUB_STEP_SUMMARY"

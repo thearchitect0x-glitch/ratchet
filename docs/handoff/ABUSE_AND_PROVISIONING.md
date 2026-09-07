@@ -75,13 +75,26 @@ Both limits are now getters, like `rateLimitOverride`.
 > **Rule:** any config value a test needs to vary must be a getter. A value read
 > at module load is a value whose meaning depends on import order.
 
+## Alerting (added 6 Sep 2026)
+
+`GET /workerz` reports `provisioning` as one word — `ok`, `elevated` at 80% of
+the global hourly ceiling, or `at_ceiling` — and the uptime workflow fails on
+`at_ceiling`, which is what turns it into an email. `elevated` deliberately does
+not page: it is somebody pushing while the door is still open, and an alert for
+that teaches the reader to ignore the mailbox.
+
+**The numbers are never published.** The endpoint is public and takes no
+credential, and the count together with the ceiling tells a stranger exactly how
+many more requests would shut the keyless door on everybody. The state word is
+public; the distance to it stays in the worker's log, where `provision-watch`
+writes it every five minutes — the window is hourly and resets, so without that
+loop the endpoint could say what *is* happening and never what *happened*.
+
 ## What is still open
 
 - **Claimed-workspace farming.** Claiming needs only an email, and disposable
   addresses are free. 1,000/month each is a far better rate than 500/hour of
   anonymous quota, so this is now the cheaper attack. Not yet bounded.
-- **No alerting on pressure.** `provisionPressure()` exists and nothing watches
-  it. We would learn we were at the global ceiling from a user complaint.
 - **The global ceiling is a blunt instrument.** At the ceiling, a legitimate new
   agent is refused alongside the attacker. 250/hour is generous enough that this
   should be rare, but the failure mode is real and should be measured before it

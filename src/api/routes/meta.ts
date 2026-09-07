@@ -8,7 +8,7 @@ import { SCOPES } from '../../domain/auth.js';
 import { EVENT_TYPES } from '../../domain/events.js';
 import { MCP_TOOLS } from '../../mcp/tools.js';
 import { recipes } from '../../domain/integrate.js';
-import { VENDOR_PROFILES, type VendorProfile } from '../../domain/vendor-keys.js';
+import { VENDOR_PROFILES, DIRECTORY_PROFILES, type VendorProfile } from '../../domain/vendor-keys.js';
 import { workerHealth } from '../../worker/heartbeat.js';
 import { emailQueueHealth } from '../../domain/email.js';
 import { provisionPressure, provisionState } from '../../domain/provisioning.js';
@@ -400,7 +400,7 @@ export default async function metaRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const base = config.publicUrl.replace(/\/+$/, '');
-    const rows = Object.values(VENDOR_PROFILES).filter((v) => v.vendor !== 'generic');
+    const rows = DIRECTORY_PROFILES;
     if (String(req.headers.accept ?? '').includes('text/plain')) {
       return reply.type('text/plain; charset=utf-8').send(
         ['# Does this vendor deduplicate a repeated request?', '',

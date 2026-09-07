@@ -37,11 +37,11 @@ const IS_DATED_RECORD = /_\d{4}-\d{2}-\d{2}/;
 function livingDocuments(): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
-    for (const entry of readdirSync(dir)) {
-      const path = join(dir, entry);
-      if (statSync(path).isDirectory()) { walk(path); continue; }
-      if (!entry.endsWith('.md')) continue;
-      if (IS_DATED_RECORD.test(entry)) continue;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) { walk(path); continue; }
+      if (!entry.name.endsWith('.md')) continue;
+      if (IS_DATED_RECORD.test(entry.name)) continue;
       out.push(path);
     }
   };
@@ -138,15 +138,29 @@ test('vendor counts in living documents match the profiles that exist', () => {
   assert.deepEqual(wrong, [], `Vendor counts out of step with VENDOR_PROFILES:\n${wrong.join('\n')}`);
 });
 
-/** Counts declarations in a file, or recursively in a directory. */
+/**
+ * Counts declarations in a file, or recursively in a directory.
+ *
+ * One stat, at the entry point, because the caller hands over a bare path and
+ * something has to ask what it is. Everything below it takes the kind from the
+ * readdir that produced the name, so the recursion does not stat every entry
+ * and then read it — the check-then-use shape CodeQL names, and N syscalls
+ * where one will do.
+ */
 function countTestDeclarations(path: string): number {
-  if (!statSync(path).isDirectory()) {
-    if (!path.endsWith('.ts')) return 0;
-    return (readFileSync(path, 'utf8').match(/^\s*(?:test|it)\(/gm) ?? []).length;
-  }
-  let n = 0;
-  for (const entry of readdirSync(path)) n += countTestDeclarations(join(path, entry));
-  return n;
+  const countFile = (p: string) =>
+    p.endsWith('.ts') ? (readFileSync(p, 'utf8').match(/^\s*(?:test|it)\(/gm) ?? []).length : 0;
+
+  const walk = (dir: string): number => {
+    let n = 0;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const child = join(dir, entry.name);
+      n += entry.isDirectory() ? walk(child) : countFile(child);
+    }
+    return n;
+  };
+
+  return statSync(path).isDirectory() ? walk(path) : countFile(path);
 }
 
 /**
@@ -241,10 +255,14 @@ test('every error code the API can return is documented, and no others', () => {
 
   const emitted = new Set<string>();
   const walk = (dir: string) => {
-    for (const entry of readdirSync(dir)) {
-      const path = join(dir, entry);
-      if (statSync(path).isDirectory()) { walk(path); continue; }
-      if (!entry.endsWith('.ts')) continue;
+    // withFileTypes, so the kind comes back from the SAME readdir that produced
+    // the name. Calling statSync afterwards asks the filesystem a second time
+    // about a path that may have changed in between — the race CodeQL names,
+    // and one fewer syscall per entry either way.
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) { walk(path); continue; }
+      if (!entry.name.endsWith('.ts')) continue;
       const t = readFileSync(path, 'utf8');
       for (const m of t.matchAll(/new ApiError\(\s*\d{3}\s*,\s*'([a-z_]+)'/g)) emitted.add(m[1]!);
       for (const m of t.matchAll(/errors\.conflict\('([a-z_]+)'/g)) emitted.add(m[1]!);

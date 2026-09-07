@@ -21,6 +21,15 @@
 const API = 'https://api.stripe.com/v1/events';
 
 /**
+ * A ceiling on pages, so a paging bug cannot loop for ever.
+ *
+ * A hundred events a page, so this reads up to fifty thousand in one window —
+ * far past any plausible run, and reaching it reports the window as incomplete
+ * rather than pretending it finished.
+ */
+const MAX_PAGES = 500;
+
+/**
  * Actions Stripe recorded in a window.
  *
  * Returns three groups, and the third is the point:
@@ -45,6 +54,9 @@ export async function listActions({ credential, since, until, types, fetchImpl =
   let unattributable = 0;
   let events = 0;
   let startingAfter;
+  /** Set only when Stripe says has_more === false. See the loop below. */
+  let complete = false;
+  let pages = 0;
 
   for (;;) {
     const qs = new URLSearchParams();
@@ -71,14 +83,38 @@ export async function listActions({ credential, since, until, types, fetchImpl =
     }
 
     log(`stripe: ${events} events examined`);
-    if (!page.has_more || (page.data ?? []).length === 0) break;
-    startingAfter = page.data[page.data.length - 1].id;
+
+    /*
+     * Only an explicit has_more === false means "that was all of it".
+     *
+     * The previous form broke on `!page.has_more`, which is also true when the
+     * field is absent, null, or any shape other than the boolean assumed here.
+     * A vendor response that differs from expectation would have stopped the
+     * read after one page of a hundred events and reported every one of them
+     * gated — a clean bill of health from a partial read, in the tool whose
+     * entire job is finding what the gate missed. That is the false all-clear,
+     * and it is the failure this product exists to refuse.
+     *
+     * So completeness is now something the vendor has to STATE, not something
+     * inferred from the loop ending. Anything else leaves `complete` false and
+     * the caller reports inconclusive rather than clean.
+     */
+    if (page.has_more === false) { complete = true; break; }
+
+    const batch = page.data ?? [];
+    if (batch.length === 0) break;               // has_more said more, and sent none
+    if (typeof page.has_more !== 'boolean') break; // a shape we do not understand
+
+    pages += 1;
+    if (pages >= MAX_PAGES) break;               // bounded, and honestly incomplete
+
+    startingAfter = batch[batch.length - 1].id;
   }
 
   // Stripe replays the same key on a retried request, and one logical action can
   // raise several events. Both produce duplicates that would inflate `checked`
   // without telling anyone anything new.
-  return { keys: [...new Set(keys)], unattributable, events };
+  return { keys: [...new Set(keys)], unattributable, events, complete };
 }
 
 export const stripe = {

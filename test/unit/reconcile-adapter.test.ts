@@ -261,3 +261,74 @@ describe('keeping credentials out of CI logs', () => {
     assert.equal(redactWith('effect_type=x', 'x'), 'effect_type=x');
   });
 });
+
+
+describe('a vendor read that did not finish cannot report clean', () => {
+  /**
+   * The failure this section exists for.
+   *
+   * The loop used to stop on `!page.has_more`, which is also true when the
+   * field is absent or any shape other than the boolean assumed. A vendor
+   * response differing from expectation would have ended the read after one
+   * page and reported everything in it gated — a clean bill of health from a
+   * partial look, in the tool whose whole job is finding what the gate missed.
+   *
+   * Completeness is now something the vendor has to STATE.
+   */
+  const pagedHarness = (pages: Array<Record<string, unknown>>) => {
+    const calls: Call[] = [];
+    let n = 0;
+    const fetchImpl = async (url: string, init?: { body?: string }) => {
+      calls.push({ url, body: init?.body ? JSON.parse(init.body) : undefined });
+      if (new URL(url).host === 'api.stripe.com') {
+        const page = pages[Math.min(n, pages.length - 1)]!;
+        n += 1;
+        return { ok: true, status: 200, json: async () => page };
+      }
+      return {
+        ok: true, status: 200,
+        json: async () => ({ checked: 1, gated: 1, ungated: 0, ungated_keys: [] }),
+      };
+    };
+    return { calls, fetchImpl: fetchImpl as unknown as typeof fetch };
+  };
+
+  test('has_more missing entirely is inconclusive, not clean', async () => {
+    const { calls, fetchImpl } = pagedHarness([{ data: [ev('e1', 'rtk_a')] }]);
+    const s = await run({}, fetchImpl);
+
+    assert.equal(s.vendorComplete, false);
+    assert.equal(exitCodeFor(s), EXIT.INCONCLUSIVE,
+      'an unconfirmed vendor read must never exit 0');
+    assert.match(s.meaning, /did not confirm the window was fully read/);
+    assert.equal(calls.filter((c) => c.url.includes('/v1/reconcile')).length, 0,
+      'and it must not record a run off the back of a partial read');
+  });
+
+  test('has_more of a non-boolean shape is inconclusive', async () => {
+    const { fetchImpl } = pagedHarness([{ data: [ev('e1', 'rtk_a')], has_more: 'yes' }]);
+    assert.equal(exitCodeFor(await run({}, fetchImpl)), EXIT.INCONCLUSIVE);
+  });
+
+  test('has_more true with an empty page is inconclusive', async () => {
+    const { fetchImpl } = pagedHarness([{ data: [], has_more: true }]);
+    assert.equal(exitCodeFor(await run({}, fetchImpl)), EXIT.INCONCLUSIVE);
+  });
+
+  test('an explicit has_more false is the only thing that means finished', async () => {
+    const { fetchImpl } = pagedHarness([{ data: [ev('e1', 'rtk_a')], has_more: false }]);
+    const s = await run({}, fetchImpl);
+    assert.equal(s.vendorComplete, true);
+    assert.equal(exitCodeFor(s), EXIT.CLEAN);
+  });
+
+  test('it pages, and a later page saying false still counts as finished', async () => {
+    const { fetchImpl } = pagedHarness([
+      { data: [ev('e1', 'rtk_a')], has_more: true },
+      { data: [ev('e2', 'rtk_b')], has_more: false },
+    ]);
+    const s = await run({}, fetchImpl);
+    assert.equal(s.vendorComplete, true);
+    assert.equal(s.eventsExamined, 2, 'both pages should have been read');
+  });
+});

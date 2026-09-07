@@ -10,6 +10,7 @@ import { MCP_TOOLS } from '../../mcp/tools.js';
 import { recipes } from '../../domain/integrate.js';
 import { VENDOR_PROFILES, type VendorProfile } from '../../domain/vendor-keys.js';
 import { workerHealth } from '../../worker/heartbeat.js';
+import { SERVER_INFO } from '../../mcp/protocol.js';
 import { emailQueueHealth } from '../../domain/email.js';
 import { provisionPressure, provisionState } from '../../domain/provisioning.js';
 import { timingSafeEqual } from 'node:crypto';
@@ -170,7 +171,9 @@ export default async function metaRoutes(app: FastifyInstance) {
       'for permission; Ratchet returns a durable decision — execute, replay a recorded result, ' +
       'wait, or stop — so the same real-world action is attempted at most once, stays inside a ' +
       'declared budget, and leaves an auditable record.',
-    version: '0.1.0',
+    // Read, never typed — the same defect as the OpenAPI document, on the
+    // surface an agent reads to decide how to talk to us at all.
+    version: SERVER_INFO.version,
     documentation_url: `${config.publicUrl}/docs`,
     openapi_url: `${config.publicUrl}/openapi.json`,
     llms_txt_url: `${config.publicUrl}/llms.txt`,

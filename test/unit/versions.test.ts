@@ -53,6 +53,44 @@ describe('version consistency', () => {
     assert.equal(SERVER_INFO.version, repo,
       'serverInfo.version must not be typed by hand — it is read from package.json');
   });
+
+  /**
+   * The published API contract, which was the one nobody checked.
+   *
+   * `info.version` in the OpenAPI document read '0.1.0' while the package, the
+   * registry manifest and `initialize` all said 0.3.0 — two minor versions
+   * behind, on the document integrators generate clients from. It is the same
+   * failure this file exists for, in the one place it had not looked, and
+   * 0.1.0 is literally the number from the story at the top.
+   */
+  /**
+   * Every version a client can actually fetch, asserted through the real route.
+   *
+   * Reading the source would prove the literal is gone; only serving the
+   * request proves what a client is told. Both of these were typed by hand and
+   * both read '0.1.0' while the package said 0.3.0 — the OpenAPI document that
+   * integrators generate clients from, and the agent manifest an agent reads to
+   * decide how to talk to us at all.
+   */
+  test('every version a client can fetch is the same number', async () => {
+    const { buildApp } = await import('../../src/api/app.js');
+    const app = await buildApp({ logger: false });
+    try {
+      await app.ready();
+      const surfaces: Array<[string, (b: any) => unknown]> = [
+        ['/openapi.json', (b) => b.info.version],
+        ['/.well-known/agent-manifest.json', (b) => b.version],
+      ];
+      for (const [url, pick] of surfaces) {
+        const res = await app.inject({ method: 'GET', url });
+        assert.equal(res.statusCode, 200, `${url} did not answer`);
+        assert.equal(pick(JSON.parse(res.payload)), repo,
+          `${url} declares a different version — derive it from package.json, do not type it`);
+      }
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 /**

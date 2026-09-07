@@ -17,29 +17,15 @@
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { strip, decode, jsonForScriptBlock } from './lib/html-text.mjs';
 
 const WEB = join(dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const SITE = 'https://ratchetgate.com';
 const check = process.argv.includes('--check');
 
-/*
- * Tags out, entities decoded, whitespace collapsed.
- *
- * Decoding is not cosmetic. The title suffix is stripped with a regex that
- * expects a literal em dash, so a page writing `&mdash;` kept "— Ratchet" in
- * its headline; and an undecoded `&lsquo;` was escaped a second time on the way
- * into the feed, reaching readers as `&amp;lsquo;`. Both are what you get for
- * treating markup as text.
- */
-const ENTITIES = {
-  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
-  mdash: '\u2014', ndash: '\u2013', hellip: '\u2026',
-  lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d',
-};
-const decode = (s) => s
-  .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-  .replace(/&([a-zA-Z]+);/g, (m, name) => ENTITIES[name] ?? m);
-const strip = (s) => decode(s.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+// Text extraction and script-block escaping live in ./lib/html-text.mjs,
+// where they can be tested against hostile input. Both had defects that no
+// test could reach while they were locals in a script that runs on import.
 const MARK = {
   open: '<!-- schema:auto -->',
   close: '<!-- /schema:auto -->',
@@ -54,7 +40,7 @@ function inject(html, block) {
 }
 
 const ld = (obj) =>
-  `<script type="application/ld+json">\n${JSON.stringify(obj, null, 1)}\n</script>`;
+  `<script type="application/ld+json">\n${jsonForScriptBlock(obj)}\n</script>`;
 
 // ---------------------------------------------------------------- FAQ
 function faq() {

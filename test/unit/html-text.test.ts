@@ -49,6 +49,12 @@ describe('stripping tags', () => {
    * here rather than asserted in a comment, because a comment cannot fail.
    */
   test('for this regex one pass already equals the fixpoint', () => {
+    // This is the unsafe single-pass form on purpose: it is the control the
+    // fixpoint is compared against, and it is never given real input. Suppressed
+    // rather than disguised — building the same regex dynamically would hide it
+    // from the scanner while leaving the code identical, which is evasion, not
+    // safety.
+    // codeql[js/incomplete-multi-character-sanitization]
     const onePass = (x: string) => x.replace(/<[^>]*>/g, '');
     const alphabet = ['<', '>', 'a', 'b', '/', '"', ' '];
     let checked = 0;

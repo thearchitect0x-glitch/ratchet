@@ -42,6 +42,23 @@ jobs:
             | node bin/ratchet-mcp.mjs 2>/dev/null \
             | grep -q '"result"' || { echo "initialize did not return a result"; exit 1; }
 
+      # The adapter is the thing a customer points at their vendor credential, so
+      # it gets checked before it is published too. --help is a real exercise of
+      # the argument parsing, and a dry run proves the property the whole design
+      # turns on: it must reach the vendor and never reach /v1/reconcile, because
+      # every call there records a run and resets the cadence clock.
+      - name: The adapter must run, and a dry run must post nothing
+        working-directory: packages/ratchet-reconcile
+        run: |
+          set -euo pipefail
+          for f in bin/*.mjs lib/*.mjs lib/connectors/*.mjs; do node --check "$f"; done
+          node bin/ratchet-reconcile.mjs --help | grep -q 'ratchet-reconcile' \
+            || { echo "--help produced nothing usable"; exit 1; }
+          # No RATCHET_API_KEY on purpose: a dry run must not require one, or
+          # people paste a production key in order to rehearse.
+          node bin/ratchet-reconcile.mjs --vendor nope --effect-type x 2>&1 \
+            | grep -q 'Unknown --vendor' || { echo "unknown vendor was not refused"; exit 1; }
+
       # Provenance answers "which workflow, at which commit". It does not answer
       # "was that commit the one the maintainer released" — a release can be cut
       # from any tag, including an unsigned or a lightweight one, and the
@@ -102,10 +119,37 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.event.release.tag_name }}" sbom/*.json --clobber
 
-      - name: Publish
+      # Publishing a version that is already on npm is a hard error, so a
+      # re-run of this workflow — after a transient failure, or a second package
+      # added later — would fail on the package that already went out. Skipping
+      # what is already published makes the job idempotent and lets the two
+      # packages carry different versions without the release tag having to know.
+      - name: Publish ratchet-mcp
         if: ${{ env.NPM_TOKEN != '' }}
         working-directory: packages/ratchet-mcp
-        run: npm publish --provenance --access public
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./package.json').version")
+          if npm view "ratchet-mcp@$V" version >/dev/null 2>&1; then
+            echo "ratchet-mcp@$V is already on npm; nothing to do."
+          else
+            npm publish --provenance --access public
+          fi
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish ratchet-reconcile
+        if: ${{ env.NPM_TOKEN != '' }}
+        working-directory: packages/ratchet-reconcile
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./package.json').version")
+          if npm view "ratchet-reconcile@$V" version >/dev/null 2>&1; then
+            echo "ratchet-reconcile@$V is already on npm; nothing to do."
+          else
+            npm publish --provenance --access public
+          fi
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -23,6 +23,7 @@ const load = (p: string): Promise<any> => import(p);
 const { reconcile, exitCodeFor, EXIT, MAX_KEYS_PER_CALL, CALLS_PER_HOUR } =
   await load('../../packages/ratchet-reconcile/lib/reconcile.mjs');
 const { stripe } = await load('../../packages/ratchet-reconcile/lib/connectors/stripe.mjs');
+const { redact, redactWith } = await load('../../packages/ratchet-reconcile/lib/redact.mjs');
 
 type Call = { url: string; body: unknown };
 
@@ -209,5 +210,54 @@ describe('batching against the endpoint\'s published limits', () => {
     await assert.rejects(() => run({}, fetchImpl), /over the endpoint's limit/);
     assert.equal(calls.filter((c) => c.url.includes('/v1/reconcile')).length, 0,
       'it must refuse before posting anything, not partway through');
+  });
+});
+
+describe('keeping credentials out of CI logs', () => {
+  /**
+   * The reason this exists. Stripe answers a bad key with
+   * `Invalid API Key provided: sk_...`, and this tool runs on a schedule in CI
+   * where stderr is a build log — often readable by more people than the secret
+   * store the key came from.
+   */
+  test('a vendor echoing the key back does not put it in the log', () => {
+    const out = redact('Invalid API Key provided: sk_test_51HabcdefghijklmnopQRST');
+    assert.ok(!out.includes('51Habcdefghijklmnop'), 'the key survived into the message');
+    assert.match(out, /sk_\[redacted \d+ chars\]/);
+  });
+
+  test('the common credential shapes are covered', () => {
+    for (const secret of [
+      'sk_live_abcdefghijklmnop', 'rk_test_abcdefghijkl', 'whsec_abcdefghijkl',
+      're_abcdefghijkl', 'tsec_abcdefghijklmn', 'cfat_abcdefghijklmn',
+      'ghp_abcdefghijklmnopqrst', 'AKIAABCDEFGHIJKLMNOP',
+    ]) {
+      assert.ok(!redact(`token=${secret}`).includes(secret), `${secret} was not redacted`);
+    }
+  });
+
+  /**
+   * The one thing that must NOT be redacted.
+   *
+   * rtk_ keys are the subject of the report: an unmatched one is the ungated
+   * action the operator has to go and fix. Scrubbing them would produce a tool
+   * that announces a problem and then refuses to say which one.
+   */
+  test('the findings themselves survive, or the report is useless', () => {
+    const line = 'ungated: rtk_9f2c1a4b, rtk_77bd0e12';
+    assert.equal(redact(line), line);
+  });
+
+  /**
+   * A vendor with an unrecognised key format sails straight past the pattern.
+   * We always know our own credential, so it is removed exactly as well.
+   */
+  test('an unrecognised credential is still removed, because we hold it', () => {
+    const odd = 'ZmFrZS1jcmVkZW50aWFs';
+    assert.ok(!redactWith(`auth failed for ${odd}`, odd).includes(odd));
+  });
+
+  test('a short string is not treated as a secret, or every log line vanishes', () => {
+    assert.equal(redactWith('effect_type=x', 'x'), 'effect_type=x');
   });
 });

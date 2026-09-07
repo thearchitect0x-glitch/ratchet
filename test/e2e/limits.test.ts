@@ -26,28 +26,69 @@ after(async () => { await app.close(); await closePool(); });
 const hit = (key: string) =>
   app.inject({ url: '/v1/effects', headers: { authorization: `Bearer ${key}` } });
 
+/**
+ * Drives a key until it is refused, and hands back the refusal.
+ *
+ * Windows are fixed to wall-clock boundaries, not sliding, so a burst that
+ * straddles one gets the tail of a window plus the head of the next — up to
+ * twice the published limit in a rolling sixty seconds. KNOWN_LIMITATIONS §2
+ * documents that as deliberate.
+ *
+ * These tests used to burst to `limit + 5`, assert EXACTLY `limit` successes,
+ * and then let the next two tests assume the key was still throttled. On a
+ * boundary crossing the counter reset mid-burst, nothing was refused, and all
+ * three failed together — which is what happened in CI on 6 Sep 2026, on a
+ * documentation-only branch, and cost an hour of looking for a defect that was
+ * in the test.
+ *
+ * `plan-limits.test.ts` was fixed for this exact cause by driving past twice the
+ * limit so one boundary cannot save the caller. This is the same fix, plus each
+ * test now establishes its own throttled state instead of inheriting it.
+ */
+async function driveUntilThrottled(key: string, limit: number) {
+  const codes: number[] = [];
+  // Twice the limit plus a margin: one boundary reset cannot absorb it.
+  for (let i = 0; i < limit * 2 + 10; i += 1) {
+    const r = await hit(key);
+    codes.push(r.statusCode);
+    if (r.statusCode === 429) return { codes, refusal: r };
+  }
+  throw new Error(`never refused after ${codes.length} requests against a limit of ${limit}`);
+}
+
 describe('rate limiting', () => {
   test('an authenticated key is throttled at its PLAN limit', async () => {
     // RATE_LIMIT_PER_MINUTE governs unauthenticated traffic only; an
     // authenticated request is limited by the plan its workspace is on.
     const { PLANS } = await import('../../src/domain/plans.js');
     const limit = PLANS.free.rateLimitPerMinute;
-    const codes: number[] = [];
-    for (let i = 0; i < limit + 5; i++) codes.push((await hit(keyA)).statusCode);
-    assert.equal(codes.filter((c) => c === 200).length, limit);
+    const { codes } = await driveUntilThrottled(keyA, limit);
+
     assert.ok(codes.includes(429), 'the limit must actually be enforced');
+    // Not `=== limit`. A fixed window can hand out up to twice the limit across
+    // a boundary, and asserting exactness claims a guarantee the system does not
+    // make — see KNOWN_LIMITATIONS §2.
+    const allowed = codes.filter((c) => c === 200).length;
+    assert.ok(allowed <= limit * 2,
+      `${allowed} allowed against a limit of ${limit}; even a boundary crossing caps at 2x`);
+    assert.ok(allowed >= 1, 'a valid key must get through at least once');
   });
 
   test('the throttle response is machine-readable and says when to retry', async () => {
-    const r = await hit(keyA);
-    assert.equal(r.statusCode, 429);
-    const body = JSON.parse(r.payload);
+    const { PLANS } = await import('../../src/domain/plans.js');
+    // Establishes its own refusal rather than inheriting one from the test above:
+    // between two tests the window can roll over and the key is no longer throttled.
+    const { refusal } = await driveUntilThrottled(keyA, PLANS.free.rateLimitPerMinute);
+
+    assert.equal(refusal.statusCode, 429);
+    const body = JSON.parse(refusal.payload);
     assert.equal(body.error.code, 'rate_limited');
     assert.ok(body.error.detail.retry_after_seconds > 0);
   });
 
   test('one tenant cannot exhaust another tenant\'s budget', async () => {
-    // Key A is already throttled; key B must be unaffected.
+    const { PLANS } = await import('../../src/domain/plans.js');
+    await driveUntilThrottled(keyA, PLANS.free.rateLimitPerMinute);
     const r = await hit(keyB);
     assert.equal(r.statusCode, 200,
       'limits are per-key, so a noisy tenant must not throttle a quiet one');

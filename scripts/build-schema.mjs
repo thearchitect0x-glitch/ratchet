@@ -14,7 +14,7 @@
  *   node scripts/build-schema.mjs         # write
  *   node scripts/build-schema.mjs --check # fail if stale (CI)
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -22,7 +22,24 @@ const WEB = join(dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const SITE = 'https://ratchetgate.com';
 const check = process.argv.includes('--check');
 
-const strip = (s) => s.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+/*
+ * Tags out, entities decoded, whitespace collapsed.
+ *
+ * Decoding is not cosmetic. The title suffix is stripped with a regex that
+ * expects a literal em dash, so a page writing `&mdash;` kept "— Ratchet" in
+ * its headline; and an undecoded `&lsquo;` was escaped a second time on the way
+ * into the feed, reaching readers as `&amp;lsquo;`. Both are what you get for
+ * treating markup as text.
+ */
+const ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  mdash: '\u2014', ndash: '\u2013', hellip: '\u2026',
+  lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d',
+};
+const decode = (s) => s
+  .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+  .replace(/&([a-zA-Z]+);/g, (m, name) => ENTITIES[name] ?? m);
+const strip = (s) => decode(s.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
 const MARK = {
   open: '<!-- schema:auto -->',
   close: '<!-- /schema:auto -->',
@@ -60,17 +77,42 @@ function faq() {
 }
 
 // ---------------------------------------------------------------- notes
+/** Filled in by note(), so the feed is built from the same parse as the schema. */
+const PARSED = [];
 function note(file) {
   const path = join(WEB, 'notes', file);
   const html = readFileSync(path, 'utf8');
   const slug = file.replace(/\.html$/, '');
   const title = strip(html.match(/<title>(.*?)<\/title>/s)?.[1] ?? '')
     .replace(/\s*[—|]\s*Ratchet\s*$/, '');
-  const desc = html.match(/<meta name="description" content="([^"]*)"/)?.[1] ?? '';
-  // Prefer the date the page already shows over one invented here.
-  const date = html.match(/datetime="(\d{4}-\d{2}-\d{2})"/)?.[1]
-    ?? html.match(/<loc>[^<]*<\/loc><lastmod>(\d{4}-\d{2}-\d{2})/)?.[1]
-    ?? '2026-09-01';
+  const desc = decode(html.match(/<meta name="description" content="([^"]*)"/)?.[1] ?? '');
+  /*
+   * Prefer the date the page already shows over one invented here.
+   *
+   * It used to fall through to a hardcoded '2026-09-01', and three notes had no
+   * <time> element at all — they print the date as prose in <p class="meta">.
+   * They were not in the generator's input list, so the fallback never fired
+   * and nobody noticed; the moment they were included it would have stamped all
+   * three with a publication date five days before they were written, in the
+   * structured data Google reads. A default that quietly produces a wrong
+   * answer is worse than no default, so the last resort now throws.
+   */
+  const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july',
+                  'august', 'september', 'october', 'november', 'december'];
+  const prose = strip(html.match(/<p class="meta">([^<]*)<\/p>/)?.[1] ?? '')
+    .match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+  const fromProse = prose
+    ? `${prose[3]}-${String(MONTHS.indexOf(prose[2].toLowerCase()) + 1).padStart(2, '0')}`
+      + `-${prose[1].padStart(2, '0')}`
+    : undefined;
+
+  const date = html.match(/datetime="(\d{4}-\d{2}-\d{2})"/)?.[1] ?? fromProse;
+  if (!date) {
+    throw new Error(
+      `${file}: cannot determine a publication date. Give the page a <time datetime="YYYY-MM-DD">`
+      + ' or a <p class="meta">D Month YYYY</p>. Guessing would put a wrong date in the'
+      + ' structured data Google reads, attributed to us, in public.');
+  }
 
   const block = ld({
     '@context': 'https://schema.org',
@@ -88,6 +130,7 @@ function note(file) {
       logo: { '@type': 'ImageObject', url: `${SITE}/assets/mark.svg` },
     },
   });
+  PARSED.push({ slug, title, desc, date });
   return [path, inject(html, block), `BlogPosting · ${slug}`];
 }
 
@@ -124,9 +167,55 @@ function home() {
   return [path, inject(html, block), 'Organization + WebSite'];
 }
 
-const jobs = [home(), faq(),
-  note('what-happens-when-step-five-fails.html'),
-  note('idempotency-keys-are-broken-on-macos.html')];
+/*
+ * Every note, found by looking rather than by remembering.
+ *
+ * This list used to be written out by hand, and it had drifted to two of the
+ * five notes that existed — so three of them carried structured data nobody was
+ * regenerating, which is precisely the failure this script was written to
+ * prevent. A generator with a hand-maintained input list is a hand-maintained
+ * list with extra steps.
+ *
+ * index.html and feed.xml live in the same directory and are not posts.
+ */
+const NOT_A_POST = new Set(['index.html']);
+const notes = readdirSync(join(WEB, 'notes'))
+  .filter((f) => f.endsWith('.html') && !NOT_A_POST.has(f))
+  .sort();
+
+const jobs = [home(), faq(), ...notes.map(note)];
+
+/*
+ * The feed, from the same parse.
+ *
+ * It was written by hand, which means it was one forgotten edit away from
+ * advertising a set of notes that no longer matched the ones on the site — the
+ * same drift this script exists to prevent, in the file most likely to be read
+ * by something that never visits the page.
+ */
+const rfc822 = (d) => new Date(`${d}T09:00:00Z`).toUTCString();
+const xml = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const items = [...PARSED].sort((a, b) => b.date.localeCompare(a.date)).map((n) => `    <item>
+      <title>${xml(n.title)}</title>
+      <link>${SITE}/notes/${n.slug}</link>
+      <guid isPermaLink="true">${SITE}/notes/${n.slug}</guid>
+      <pubDate>${rfc822(n.date)}</pubDate>
+      <description>${xml(n.desc)}</description>
+    </item>`).join('\n');
+
+jobs.push([join(WEB, 'notes', 'feed.xml'),
+`<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Ratchet — engineering notes</title>
+    <link>${SITE}/notes</link>
+    <description>Notes from building an effect gate for AI agents.</description>
+    <language>en</language>
+    <atom:link href="${SITE}/notes/feed.xml" rel="self" type="application/rss+xml"/>
+${items}
+  </channel>
+</rss>
+`, `RSS · ${PARSED.length} notes`]);
 
 let stale = 0;
 for (const [path, next, label] of jobs) {

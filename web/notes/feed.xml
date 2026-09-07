@@ -7,6 +7,20 @@
     <language>en</language>
     <atom:link href="https://ratchetgate.com/notes/feed.xml" rel="self" type="application/rss+xml"/>
     <item>
+      <title>The dedupe key that could not say ‘again’</title>
+      <link>https://ratchetgate.com/notes/a-dedupe-key-that-could-not-say-again</link>
+      <guid isPermaLink="true">https://ratchetgate.com/notes/a-dedupe-key-that-could-not-say-again</guid>
+      <pubDate>Mon, 07 Sep 2026 09:00:00 GMT</pubDate>
+      <description>A monitor found something, recorded that it had reported it, and then had its message silently dropped by idempotent webhook delivery. Dedupe and repetition are the same mechanism pointed in opposite directions.</description>
+    </item>
+    <item>
+      <title>A planned failover left us with two primaries</title>
+      <link>https://ratchetgate.com/notes/a-planned-failover-left-two-primaries</link>
+      <guid isPermaLink="true">https://ratchetgate.com/notes/a-planned-failover-left-two-primaries</guid>
+      <pubDate>Sun, 06 Sep 2026 09:00:00 GMT</pubDate>
+      <description>A planned Postgres failover promoted a node, failed its health check, gave up, and restarted the old primary. Twenty-five minutes down, no data lost.</description>
+    </item>
+    <item>
       <title>Every health check was green and the standby was 590 MB behind</title>
       <link>https://ratchetgate.com/notes/every-health-check-was-green</link>
       <guid isPermaLink="true">https://ratchetgate.com/notes/every-health-check-was-green</guid>
@@ -21,25 +35,18 @@
       <description>Scaling the control plane from one machine to two pushed a 256MB Postgres into an OOM loop. The connection budget nobody had written down.</description>
     </item>
     <item>
-      <title>A planned failover left us with two primaries</title>
-      <link>https://ratchetgate.com/notes/a-planned-failover-left-two-primaries</link>
-      <guid isPermaLink="true">https://ratchetgate.com/notes/a-planned-failover-left-two-primaries</guid>
-      <pubDate>Sun, 06 Sep 2026 09:00:00 GMT</pubDate>
-      <description>A planned Postgres failover promoted a node, failed its health check, gave up, and restarted the old primary. Twenty-five minutes down, no data lost.</description>
-    </item>
-    <item>
       <title>What happens when step five fails</title>
       <link>https://ratchetgate.com/notes/what-happens-when-step-five-fails</link>
-      <guid>https://ratchetgate.com/notes/what-happens-when-step-five-fails</guid>
-      <pubDate>Tue, 01 Sep 2026 00:00:00 GMT</pubDate>
+      <guid isPermaLink="true">https://ratchetgate.com/notes/what-happens-when-step-five-fails</guid>
+      <pubDate>Tue, 01 Sep 2026 09:00:00 GMT</pubDate>
       <description>A booking agent completes four steps and the payment declines. A retry loop fires a hundred charges. Two failures, run against the live service, with the transcripts.</description>
     </item>
     <item>
       <title>Your idempotency keys are broken on macOS</title>
       <link>https://ratchetgate.com/notes/idempotency-keys-are-broken-on-macos</link>
-      <guid>https://ratchetgate.com/notes/idempotency-keys-are-broken-on-macos</guid>
-      <pubDate>Mon, 31 Aug 2026 00:00:00 GMT</pubDate>
-      <description>Two machines, the same idempotency key, both authorised to charge the same card. The cause is four lines of Unicode.</description>
+      <guid isPermaLink="true">https://ratchetgate.com/notes/idempotency-keys-are-broken-on-macos</guid>
+      <pubDate>Mon, 31 Aug 2026 09:00:00 GMT</pubDate>
+      <description>Two machines, the same idempotency key, both authorised to charge the same card. The cause is four lines of Unicode, and it is probably in your code too.</description>
     </item>
   </channel>
 </rss>

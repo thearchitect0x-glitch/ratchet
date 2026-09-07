@@ -358,7 +358,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     async (_req, reply) => reply.sendFile('faq.html'));
   app.get('/notes', { schema: { hide: true } },
     async (_req, reply) => reply.sendFile('notes/index.html'));
-  const POSTS = ['a-planned-failover-left-two-primaries',
+  const POSTS = ['a-dedupe-key-that-could-not-say-again',
+                 'a-planned-failover-left-two-primaries',
                  'every-health-check-was-green',
                  'fixing-availability-caused-an-outage',
                  'idempotency-keys-are-broken-on-macos',

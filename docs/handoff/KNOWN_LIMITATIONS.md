@@ -476,16 +476,28 @@ contradicted a published claim.** It said no percentage was claimed anywhere
 while the OpenSSF badge claimed 90.87% statement coverage. Whichever a reader
 believed, the project was wrong somewhere.
 
-Measured 5 Sep 2026 by `npm run coverage` over all three suites against a
+Measured 7 Sep 2026 by `npm run coverage` over all three suites against a
 disposable database:
 
 | | |
 |---|---|
-| Statements | **91.1%** (17343/19036) |
-| Branches | **81.88%** (2210/2699) |
-| Functions | **92.13%** (457/496) |
-| Lines | **91.1%** |
-| Tests | **1102** across unit, integration and e2e — the 673 above was also stale |
+| Statements | **91.05%** (18024/19794) |
+| Branches | **82.09%** (2269/2764) |
+| Functions | **92.32%** (469/508) |
+| Lines | **91.05%** |
+| Tests | **1195** across unit, integration and e2e |
+
+*Superseded: the 5 Sep 2026 reading was 91.1% statements across a smaller suite. The earlier
+figure is kept here because this section exists to record that the file used to
+contradict a published claim, and a correction that erases its own history reads
+as if the mistake never happened.*
+
+**These numbers are checked against each other, not against reality.**
+`claims-audit.test.ts` asserts every current coverage figure quoted anywhere in
+the documentation agrees with every other. It cannot know whether they are
+right — a unit test does not run c8 — but it can stop two documents disagreeing,
+which is the shape the failure took both times: the badge said one thing and
+this file said another, and a reader had no way to tell which.
 
 Floors are enforced in CI at 90/78/90/88 and all four are set explicitly, because
 c8 defaults `lines` to 90 and the rest to 0 — an unset threshold is not a neutral

@@ -18,8 +18,8 @@ Everything below was run on this machine against real Postgres 16. No number is 
 | End-to-end (real HTTP + MCP) | 16 | 54 | 54 | 0 | 1.7 s |
 | **Total** | **40** | **152** | **152** | **0** | **~3.1 s** |
 
-Coverage is measured — `npm run coverage`, 91.1% statements / 81.88% branches as of
-5 Sep 2026, floors enforced in CI. It is quoted here rather than described, because
+Coverage is measured — `npm run coverage`, 91.05% statements / 82.09% branches as of
+7 Sep 2026, floors enforced in CI. It is quoted here rather than described, because
 this file previously said no percentage was claimed while the OpenSSF badge claimed
 90.87%. What is *also* claimed, and matters more than the percentage, is the
 list below: each item corresponds to named, passing tests.

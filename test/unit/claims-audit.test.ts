@@ -317,3 +317,89 @@ test('every documented error code carries a retry verdict', () => {
       `${terminal} is terminal and must never be described as retryable`);
   }
 });
+
+/**
+ * Every current coverage figure in the documentation must agree with every
+ * other one.
+ *
+ * This cannot know whether the numbers are right — a unit test does not run c8.
+ * It can stop two documents disagreeing, which is the shape the failure has
+ * taken every time: the OpenSSF badge claimed 90.87% while KNOWN_LIMITATIONS
+ * said no percentage was claimed anywhere; later the badge said 91.1% while a
+ * fresh measurement read 90.03%. In both cases a reader had no way to tell
+ * which was true, and the project was wrong somewhere.
+ *
+ * A figure is treated as historical, and skipped, only when the line marks it —
+ * "superseded", "earlier", "previously", "used to". Erasing a corrected number
+ * would let this test pass by deleting the evidence, which is the opposite of
+ * the point.
+ */
+test('the documentation does not disagree with itself about coverage', () => {
+  /*
+   * A floor is not a measurement. "CI fails below 90% statements" and
+   * "the criterion asks for 90%" are claims about the threshold, and they are
+   * SUPPOSED to differ from the measured figure — that gap is the safety
+   * margin. Comparing them to a reading would make this test fire on a project
+   * doing exactly the right thing.
+   */
+  const FLOOR = /floor|fails below|threshold|at least|asks for|criterion|enforced at|minimum|MUST\b|beneath/i;
+  /*
+   * Historical figures are kept on purpose. A correction that erases the number
+   * it corrected reads as if the mistake never happened, so they are skipped
+   * rather than banned — and skipping is why the marker list has to include the
+   * way each one is actually written.
+   */
+  const HISTORICAL = /supersede|earlier|previously|used to|was stale|had become|claimed|quoted|understated|flattered/i;
+  const METRICS = ['statements?', 'branch(?:es)?', 'functions?', 'lines?'] as const;
+
+  const found = new Map<string, Map<string, string[]>>();   // metric -> value -> where
+
+  for (const file of livingDocuments()) {
+    const rel = file.slice(file.indexOf('/ajbs/') + 6);
+    const lines = readFileSync(file, 'utf8').split('\n');
+    for (const [i, line] of lines.entries()) {
+      /*
+       * Backwards only, and that direction is load-bearing.
+       *
+       * Prose wraps FORWARD from its qualifier: "Coverage floors are explicit
+       * (90% statements...)" puts the word that makes it a floor on the line
+       * above the number, so looking back is what stops a false alarm there.
+       *
+       * Looking FORWARD as well suppressed a real measurement, because the line
+       * after "91.07% statements" happened to say "floors enforced in CI" — so
+       * the check quietly stopped comparing the very figure it exists to
+       * compare, and passed while two documents disagreed. Found by mutating
+       * one document and watching nothing happen.
+       */
+      const context = `${lines[i - 1] ?? ''} ${line}`;
+      if (HISTORICAL.test(context) || FLOOR.test(context)) continue;
+      for (const metric of METRICS) {
+        // "91.07% statements", "| Statements | **91.07%**", "statements: 91.07%"
+        // The pipe must be allowed through: the figures live in markdown
+        // tables — `| Statements | **91.07%** (17983/19746) |` — so excluding
+        // `|` meant this side of the comparison was never collected and the
+        // whole check passed vacuously. Caught by mutating one document to
+        // disagree and watching nothing happen.
+        const re = new RegExp(
+          `(?:(\\d{2}(?:\\.\\d{1,2})?)%\\s*${metric}|${metric}\\b[^\\n]{0,16}?\\*{0,2}(\\d{2}(?:\\.\\d{1,2})?)%)`, 'i');
+        const m = re.exec(line);
+        if (!m) continue;
+        const value = m[1] ?? m[2]!;
+        const key = metric.replace(/[^a-z]/g, '');
+        if (!found.has(key)) found.set(key, new Map());
+        const byValue = found.get(key)!;
+        if (!byValue.has(value)) byValue.set(value, []);
+        byValue.get(value)!.push(`${rel}:${i + 1}`);
+      }
+    }
+  }
+
+  for (const [metric, byValue] of found) {
+    if (byValue.size <= 1) continue;
+    const detail = [...byValue].map(([v, where]) => `  ${v}%  ${where.join(', ')}`).join('\n');
+    assert.fail(
+      `the documentation quotes ${byValue.size} different figures for ${metric} coverage:\n${detail}\n`
+      + 'Measure once with `npm run coverage` and make them agree, or mark the older one '
+      + 'as superseded rather than deleting it.');
+  }
+});

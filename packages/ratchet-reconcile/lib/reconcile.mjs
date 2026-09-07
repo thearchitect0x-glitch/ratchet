@@ -87,9 +87,25 @@ export async function reconcile({
     unattributable: found.unattributable,
     checked: 0, gated: 0, ungated: 0, ungatedKeys: [],
     partial: false,
+    /*
+     * Did the VENDOR read finish? Separate from `partial`, which is Ratchet
+     * saying its own comparison was incomplete. Both mean the same thing to a
+     * caller — you cannot conclude anything — but they fail at opposite ends
+     * and conflating them would hide which half to go and fix.
+     */
+    vendorComplete: found.complete !== false,
     batches: 0,
     dryRun,
   };
+
+  if (!summary.vendorComplete) {
+    summary.meaning =
+      `Incomplete: ${connector.name} did not confirm the window was fully read, so `
+      + `the ${found.keys.length} key(s) found may not be all of them. Anything unmatched `
+      + 'here is unproven, and anything matched proves nothing about what was missed. '
+      + 'Narrow the window with --since and run again.';
+    return summary;
+  }
 
   if (found.keys.length === 0) {
     summary.meaning = found.events === 0
@@ -147,6 +163,10 @@ export async function reconcile({
 /** What a scheduler should do about it. */
 export function exitCodeFor(summary) {
   if (summary.dryRun) return EXIT.CLEAN;
+  // A vendor read that did not finish is inconclusive for exactly the same
+  // reason a partial comparison is: exiting 0 would be a clean bill of health
+  // from an incomplete look.
+  if (summary.vendorComplete === false) return EXIT.INCONCLUSIVE;
   if (summary.partial) return EXIT.INCONCLUSIVE;
   return summary.ungated > 0 ? EXIT.UNGATED : EXIT.CLEAN;
 }

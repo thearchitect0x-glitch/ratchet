@@ -19,6 +19,7 @@ import groupRoutes from './routes/groups.js';
 import workspaceRoutes from './routes/workspace.js';
 import billingRoutes from './routes/billing.js';
 import metaRoutes from './routes/meta.js';
+import { SERVER_INFO } from '../mcp/protocol.js';
 import { feedbackRoutes } from './routes/feedback.js';
 import oauthRoutes from './routes/oauth.js';
 import receiptRoutes, { receiptWellKnown } from './routes/receipts.js';
@@ -142,7 +143,16 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
       openapi: '3.1.0',
       info: {
         title: 'Ratchet API',
-        version: '0.1.0',
+        /*
+         * Read, never typed. This said '0.1.0' while the package, the registry
+         * manifest and `initialize` all said 0.3.0 — and 0.1.0 is precisely the
+         * number in the story versions.test.ts was written about ("five
+         * declarations and four different answers"). The MCP path was fixed to
+         * read package.json; this one was missed, and nothing asserted it, so
+         * the published API contract quietly stayed two minor versions behind
+         * what the same server told a client on the other endpoint.
+         */
+        version: SERVER_INFO.version,
         description:
           'An effect gate for AI agents. Ask before you act; Ratchet answers durably so the same ' +
           'real-world side effect is attempted at most once, stays inside a declared budget, and ' +

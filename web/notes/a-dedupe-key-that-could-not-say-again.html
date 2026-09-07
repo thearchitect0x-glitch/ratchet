@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The dedupe key that could not say &lsquo;again&rsquo; &mdash; Ratchet</title>
+<meta name="description" content="A monitor found something, recorded that it had reported it, and then had its message silently dropped by idempotent webhook delivery. Dedupe and repetition are the same mechanism pointed in opposite directions.">
+<link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+<link rel="canonical" href="https://ratchetgate.com/notes/a-dedupe-key-that-could-not-say-again">
+<meta name="theme-color" content="#1c5cff">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Ratchet">
+<meta property="og:title" content="The dedupe key that could not say &lsquo;again&rsquo;">
+<meta property="og:description" content="A monitor found something, recorded that it had reported it, and then had its message silently dropped by idempotent delivery.">
+<meta property="og:url" content="https://ratchetgate.com/notes/a-dedupe-key-that-could-not-say-again">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="The dedupe key that could not say &lsquo;again&rsquo;">
+<meta name="twitter:description" content="A monitor found something, recorded that it had reported it, and then had its message silently dropped by idempotent delivery.">
+<link rel="alternate" type="text/plain" href="/llms.txt" title="Ratchet for LLMs — the whole service in one file">
+<link rel="alternate" type="application/json" href="/.well-known/agent-manifest.json" title="Capability manifest">
+<link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI 3.1 specification">
+<link rel="stylesheet" href="/assets/style.css">
+<!-- schema:auto -->
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "BlogPosting",
+ "headline": "The dedupe key that could not say ‘again’",
+ "description": "A monitor found something, recorded that it had reported it, and then had its message silently dropped by idempotent webhook delivery. Dedupe and repetition are the same mechanism pointed in opposite directions.",
+ "datePublished": "2026-09-07",
+ "dateModified": "2026-09-07",
+ "url": "https://ratchetgate.com/notes/a-dedupe-key-that-could-not-say-again",
+ "mainEntityOfPage": {
+  "@type": "WebPage",
+  "@id": "https://ratchetgate.com/notes/a-dedupe-key-that-could-not-say-again"
+ },
+ "image": "https://ratchetgate.com/assets/og.png",
+ "author": {
+  "@type": "Organization",
+  "name": "Deimos AI LLC",
+  "url": "https://deimoscore.com"
+ },
+ "publisher": {
+  "@type": "Organization",
+  "name": "Ratchet",
+  "url": "https://ratchetgate.com",
+  "logo": {
+   "@type": "ImageObject",
+   "url": "https://ratchetgate.com/assets/mark.svg"
+  }
+ }
+}
+</script>
+<!-- /schema:auto -->
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site"></header>
+
+<main id="main">
+<section>
+  <div class="wrap narrow post">
+    <p class="eyebrow"><a href="/notes">Notes</a></p>
+    <h1>The dedupe key that could not say &lsquo;again&rsquo;</h1>
+    <p class="meta">7 September 2026</p>
+
+    <p class="lede">
+      We shipped a monitor that watches for payments bunched just under a reporting threshold.
+      It announces a finding once, stays quiet for seven days, and speaks again if the pattern
+      is still there. The last part could never happen. Not rarely — <strong>never</strong>.
+    </p>
+
+    <p>
+      The bug survived code review and a careful read of the module, and was found a few hours
+      later by a test written for an entirely different reason.
+    </p>
+
+    <h2>What it was supposed to do</h2>
+
+    <p>
+      Structuring is the practice of splitting one large transaction into several smaller ones
+      to stay under a reporting line. Ratchet holds every amount an agent proposed next to the
+      ceiling it was proposed against, so it can see the shape: twenty-three payouts at $9,800
+      against a $10,000 threshold, and two in the band below.
+    </p>
+
+    <p>
+      The detection is the easy half. The hard half is restraint, because a cap produces the
+      same signature honestly — told they may refund up to $10,000, people refund $9,999. So the
+      sweep never enforces, and it is careful not to repeat itself. From its own header:
+    </p>
+
+    <blockquote>
+      <p>
+        A monitor that repeats itself gets muted, and a muted monitor is indistinguishable from
+        one that was never built.
+      </p>
+    </blockquote>
+
+    <p>
+      Hence the rule: announce once per workspace and effect type, stay quiet for seven days,
+      then speak again if the finding is still there or has got materially worse.
+    </p>
+
+    <h2>What it actually did</h2>
+
+    <p>
+      Webhook events are deduplicated. The key is derived from the event, and the insert is
+      conditional:
+    </p>
+
+<pre><code>const dedupeKey = sha256Hex(`${eventType}:${JSON.stringify(payload)}`).slice(0, 40);
+
+INSERT INTO webhook_deliveries (..., dedupe_key)
+VALUES (...)
+ON CONFLICT (endpoint_id, dedupe_key) DO NOTHING</code></pre>
+
+    <p>
+      That is correct, and the comment above it says why: enqueuing the same logical event twice
+      — a retried transaction, say — must not produce two deliveries.
+    </p>
+
+    <p>
+      Now look at what the sweep puts in the payload. Effect type, threshold, window, how many
+      payments landed in the band, how many in the control band, the ratio, the severity. Every
+      one of those is a <em>function of the same counts</em>.
+    </p>
+
+    <p>
+      So when the cooldown expires and the finding has <strong>not changed</strong> — which is
+      precisely the case the cooldown exists to serve — the payload serialises to the same bytes,
+      hashes to the same key, collides, and is dropped.
+    </p>
+
+    <h2>The part that makes it worse than a dropped message</h2>
+
+    <p>
+      The sweep decides to announce, and only then enqueues. The decision writes a row:
+    </p>
+
+<pre><code>UPDATE structuring_notices SET notified_at = now(), ratio = ..., severity = ...</code></pre>
+
+    <p>
+      That update commits. The delivery does not. So the monitor has now recorded that it told
+      you, and goes quiet for another seven days on the strength of a message nobody received.
+      Seven days later it does the same thing. And again.
+    </p>
+
+    <p>
+      A finding that is <em>steady</em> — the exact profile of someone deliberately structuring
+      payments at a consistent rate — is reported once and then never again, while the system
+      believes it is reporting it every week.
+    </p>
+
+    <p>
+      The failure is silent at every layer. The sweep's return value says <code>announced: 1</code>,
+      because it did announce. The database write succeeded. The webhook table has no error row,
+      because nothing errored — <code>ON CONFLICT DO NOTHING</code> did exactly what it was told.
+      There is no log line, because a deduplicated delivery is a normal, expected, healthy event.
+    </p>
+
+    <h2>Dedupe and repetition are the same mechanism, pointed opposite ways</h2>
+
+    <p>
+      This is the generalisable part, and it is why we did not see it by reading the code.
+    </p>
+
+    <p>
+      A dedupe key answers: <em>is this the same thing I already said?</em> A recurring alert
+      needs to say: <em>this is the same thing, and I am telling you again.</em> Those are
+      directly opposed, and a key derived purely from <em>what is true</em> cannot express the
+      second one. It has no room for <em>when I decided to tell you</em>.
+    </p>
+
+    <p>
+      Everything about the design is individually right. Idempotent delivery is right. A cooldown
+      is right. Deriving the key from the payload is right. The bug lives in the seam, which is
+      where this kind of bug always lives.
+    </p>
+
+    <p>
+      The fix is one field — the sweep's own clock, carried in the payload:
+    </p>
+
+<pre><code>announced_at: now.toISOString(),</code></pre>
+
+    <p>
+      It is <code>now</code>, the value passed into the sweep, and not <code>new Date()</code>
+      evaluated at the point of use. That distinction preserves the original property: a
+      transaction retried <em>within one sweep</em> reproduces the same timestamp and still
+      deduplicates. Only a <em>separate</em> sweep is a separate announcement.
+    </p>
+
+    <h2>How it was found</h2>
+
+    <p>
+      Not by reading it. Coverage had drifted to 90.03% against a floor of 90 — six statements of
+      margin out of nineteen thousand — and the largest untested file was this one. The tests
+      were written to buy back margin.
+    </p>
+
+    <p>
+      One of them asserted that a finding older than the cooldown reaches the subscriber. It
+      expected two deliveries and got one.
+    </p>
+
+    <p>
+      That is the entire argument for a coverage floor, and it is not the argument usually made
+      for one. The number is not the point; nobody is safer because a percentage went up. The
+      point is that writing a test forces you to state what the code is supposed to do, out loud,
+      in a form that can be wrong. The docstring had claimed the behaviour for hours. The
+      assertion disagreed with the implementation in about four seconds.
+    </p>
+
+    <h2>If you have a monitor with a cooldown</h2>
+
+    <p>
+      Two questions, and they take a minute each:
+    </p>
+
+    <ul>
+      <li>
+        <strong>When it repeats itself, what in the message is different?</strong> If the answer
+        is nothing, and anything downstream deduplicates — your queue, your webhook table, your
+        paging provider, the email client that threads by subject — the repeat does not exist.
+      </li>
+      <li>
+        <strong>Does it record that it told you before confirming that it told you?</strong> If
+        so, a dropped message does not merely go missing. It resets the clock, and the next
+        window of silence is indistinguishable from everything being fine.
+      </li>
+    </ul>
+
+    <p>
+      The second one is the more dangerous, because its symptom is <em>quiet</em>, and quiet is
+      what a working monitor looks like.
+    </p>
+
+    <p class="dim" style="margin-top:2.5rem">
+      Ratchet is an effect gate for AI agents: an agent asks before it charges a card, ships a
+      deploy, or sends the email, and gets back a durable decision. The code in this note is
+      <a href="https://github.com/thearchitect0x-glitch/ratchet/blob/main/src/domain/structuring-sweep.ts">public</a>,
+      as is <a href="https://github.com/thearchitect0x-glitch/ratchet/blob/main/test/integration/structuring-sweep.test.ts">the test that found it</a>.
+    </p>
+  </div>
+</section>
+</main>
+
+<footer class="site"></footer>
+<script type="module" src="/assets/notes.js"></script>
+</body>
+</html>

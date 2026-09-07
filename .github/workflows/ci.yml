@@ -82,6 +82,14 @@ jobs:
         # would be describing a past state of the repository.
         run: pipx run 'reuse[charset-normalizer]' lint
 
+      - name: Structured data matches the pages it describes
+        # The generator existed to stop hand-written JSON-LD drifting, and
+        # nothing ran it, so it drifted: its own input list held two of five
+        # notes, and one live note published a date five days off the one it
+        # displayed. A generator nobody runs is a hand-maintained file with
+        # extra steps.
+        run: npm run schema:check
+
       - name: Dependency licences are within policy
         run: bash scripts/check-licenses.sh
 

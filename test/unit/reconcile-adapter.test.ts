@@ -31,7 +31,13 @@ function harness(events: unknown[], ratchetReply: Record<string, unknown> = {}) 
   const calls: Call[] = [];
   const fetchImpl = async (url: string, init?: { method?: string; body?: string }) => {
     calls.push({ url, body: init?.body ? JSON.parse(init.body) : undefined });
-    if (url.startsWith('https://api.stripe.com')) {
+    // Route on the host, not a prefix. `https://api.stripe.com.example.net/…`
+    // satisfies startsWith and is a different server entirely — CodeQL flagged
+    // exactly that here. Nothing was at risk: this is test dispatch, not a
+    // security control. But a fake that routes on a prefix is a fake that can
+    // answer for the wrong host without saying so, and the habit is worth not
+    // having in a file about verifying what reached a vendor.
+    if (new URL(url).host === 'api.stripe.com') {
       return { ok: true, status: 200, json: async () => ({ data: events, has_more: false }) };
     }
     return {
@@ -79,7 +85,7 @@ describe('the dry-run trap', () => {
   test('a dry run still reads the vendor, or it is rehearsing nothing', async () => {
     const { calls, fetchImpl } = harness([ev('e1', 'rtk_a')]);
     await run({ dryRun: true }, fetchImpl);
-    assert.equal(calls.filter((c) => c.url.startsWith('https://api.stripe.com')).length, 1);
+    assert.equal(calls.filter((c) => new URL(c.url).host === 'api.stripe.com').length, 1);
   });
 
   test('a dry run exits 0 — it is a rehearsal, not a verdict', async () => {

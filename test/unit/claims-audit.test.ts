@@ -37,11 +37,11 @@ const IS_DATED_RECORD = /_\d{4}-\d{2}-\d{2}/;
 function livingDocuments(): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
-    for (const entry of readdirSync(dir)) {
-      const path = join(dir, entry);
-      if (statSync(path).isDirectory()) { walk(path); continue; }
-      if (!entry.endsWith('.md')) continue;
-      if (IS_DATED_RECORD.test(entry)) continue;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) { walk(path); continue; }
+      if (!entry.name.endsWith('.md')) continue;
+      if (IS_DATED_RECORD.test(entry.name)) continue;
       out.push(path);
     }
   };
@@ -138,15 +138,29 @@ test('vendor counts in living documents match the profiles that exist', () => {
   assert.deepEqual(wrong, [], `Vendor counts out of step with VENDOR_PROFILES:\n${wrong.join('\n')}`);
 });
 
-/** Counts declarations in a file, or recursively in a directory. */
+/**
+ * Counts declarations in a file, or recursively in a directory.
+ *
+ * One stat, at the entry point, because the caller hands over a bare path and
+ * something has to ask what it is. Everything below it takes the kind from the
+ * readdir that produced the name, so the recursion does not stat every entry
+ * and then read it — the check-then-use shape CodeQL names, and N syscalls
+ * where one will do.
+ */
 function countTestDeclarations(path: string): number {
-  if (!statSync(path).isDirectory()) {
-    if (!path.endsWith('.ts')) return 0;
-    return (readFileSync(path, 'utf8').match(/^\s*(?:test|it)\(/gm) ?? []).length;
-  }
-  let n = 0;
-  for (const entry of readdirSync(path)) n += countTestDeclarations(join(path, entry));
-  return n;
+  const countFile = (p: string) =>
+    p.endsWith('.ts') ? (readFileSync(p, 'utf8').match(/^\s*(?:test|it)\(/gm) ?? []).length : 0;
+
+  const walk = (dir: string): number => {
+    let n = 0;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const child = join(dir, entry.name);
+      n += entry.isDirectory() ? walk(child) : countFile(child);
+    }
+    return n;
+  };
+
+  return statSync(path).isDirectory() ? walk(path) : countFile(path);
 }
 
 /**
@@ -223,4 +237,83 @@ test('the /verify page agrees with the documents that own its claims', () => {
   // Exactly-once is the claim the product is built on not making.
   assert.match(verify, /at-most-once/,
     '/verify must state the guarantee that is actually made');
+});
+
+/**
+ * The published error table must name every code the API can return, and
+ * nothing it cannot.
+ *
+ * Agents branch on `error.code` — that is the contract, and the docs are how a
+ * caller learns what to do about each one. When this check was written the
+ * table listed 12 codes and the code could emit 26, so more than half the
+ * surface was undocumented, including `lease_expired`, which the MCP tool
+ * descriptions explicitly tell a model to stop on. A caller cannot handle a
+ * code nobody told them exists.
+ */
+test('every error code the API can return is documented, and no others', () => {
+  const at = (f: string) => readFileSync(join(ROOT, f), 'utf8');
+
+  const emitted = new Set<string>();
+  const walk = (dir: string) => {
+    // withFileTypes, so the kind comes back from the SAME readdir that produced
+    // the name. Calling statSync afterwards asks the filesystem a second time
+    // about a path that may have changed in between — the race CodeQL names,
+    // and one fewer syscall per entry either way.
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) { walk(path); continue; }
+      if (!entry.name.endsWith('.ts')) continue;
+      const t = readFileSync(path, 'utf8');
+      for (const m of t.matchAll(/new ApiError\(\s*\d{3}\s*,\s*'([a-z_]+)'/g)) emitted.add(m[1]!);
+      for (const m of t.matchAll(/errors\.conflict\('([a-z_]+)'/g)) emitted.add(m[1]!);
+      if (/errors\.unauthorized\(/.test(t)) emitted.add('unauthorized');
+      if (/errors\.forbidden\(/.test(t)) emitted.add('forbidden');
+      if (/errors\.invalid\(/.test(t)) emitted.add('invalid_request');
+      if (/errors\.internal\(/.test(t)) emitted.add('internal_error');
+    }
+  };
+  walk(join(ROOT, 'src'));
+  assert.ok(emitted.size >= 20, `only found ${emitted.size} codes — the extraction broke`);
+
+  const docs = at('web/docs.html');
+  const table = docs.slice(docs.indexOf('<th>Worth retrying?</th>'));
+  const documented = new Set(
+    [...table.matchAll(/<td class="mono small">([a-z_]+)<\/td>/g)].map((m) => m[1]!));
+
+  const undocumented = [...emitted].filter((c) => !documented.has(c)).sort();
+  assert.deepEqual(undocumented, [],
+    `these codes can be returned and are not in the table on /docs: ${undocumented.join(', ')}`);
+
+  const invented = [...documented].filter((c) => !emitted.has(c)).sort();
+  assert.deepEqual(invented, [],
+    `the table documents codes nothing can return: ${invented.join(', ')}`);
+});
+
+/**
+ * Every row must say what to do, and the three answers are the whole point of
+ * the column: retry, change something first, or stop. A row with a description
+ * and no verdict is the state this table was already in.
+ */
+test('every documented error code carries a retry verdict', () => {
+  const docs = readFileSync(join(ROOT, 'web', 'docs.html'), 'utf8');
+  const table = docs.slice(docs.indexOf('<th>Worth retrying?</th>'));
+  const rows = [...table.matchAll(/<td class="mono small">([a-z_]+)<\/td>(.*?)<\/tr>/gs)];
+  assert.ok(rows.length >= 20, `only parsed ${rows.length} rows`);
+
+  for (const [, code, rest] of rows) {
+    assert.match(rest!, /<span class="pill (go|wait|stop)">/,
+      `${code} has no retry verdict — say retry, change first, or do not`);
+  }
+
+  /*
+   * A terminal state cannot be retried into. lease_lost in particular means
+   * somebody else holds the lease, and telling a caller to retry it would
+   * invite exactly the double-execution the gate exists to prevent.
+   */
+  for (const terminal of ['lease_lost', 'idempotency_key_reuse', 'transaction_already_used']) {
+    const row = rows.find(([, c]) => c === terminal);
+    assert.ok(row, `${terminal} is missing from the table`);
+    assert.match(row![2]!, /<span class="pill stop">/,
+      `${terminal} is terminal and must never be described as retryable`);
+  }
 });

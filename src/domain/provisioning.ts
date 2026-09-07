@@ -89,7 +89,45 @@ export async function claimProvisionSlot(
   return { allowed: true };
 }
 
-/** What the ceilings are doing right now. Read by the worker's health report. */
+/**
+ * How close keyless provisioning is to closing itself.
+ *
+ * Three states, because two of them need different answers:
+ *
+ *   `ok`         — below the warning fraction. Nothing to do.
+ *   `elevated`   — someone is pushing. The door is still open, so this is a
+ *                  thing to watch, not an outage, and it deliberately does not
+ *                  page anybody.
+ *   `at_ceiling` — the global ceiling is spent. Keyless provisioning is refusing
+ *                  EVERYONE for the rest of the hour, including the honest
+ *                  first-time caller the feature exists for. That is an outage
+ *                  of the signup path even though every other surface is green.
+ */
+export type ProvisionState = 'ok' | 'elevated' | 'at_ceiling';
+
+/**
+ * Where `elevated` begins, as a fraction of the global ceiling.
+ *
+ * Eight tenths, so that at the default of 250 an hour there are fifty slots
+ * left when it first fires. Waiting for the ceiling itself would mean the alert
+ * and the outage arrive together, which is a report rather than a warning.
+ */
+export const PROVISION_WARN_FRACTION = 0.8;
+
+export function provisionState(p: { thisHour: number; ceiling: number }): ProvisionState {
+  if (p.thisHour >= p.ceiling) return 'at_ceiling';
+  if (p.thisHour >= p.ceiling * PROVISION_WARN_FRACTION) return 'elevated';
+  return 'ok';
+}
+
+/**
+ * What the ceilings are doing right now.
+ *
+ * Read by `GET /workerz`, which publishes only the state word from
+ * `provisionState()` and never these numbers. The count and the ceiling
+ * together say exactly how many more requests would close the door on
+ * everybody, and that endpoint is public and takes no credential.
+ */
 export async function provisionPressure(db: Db = getPool()): Promise<{
   thisHour: number; ceiling: number; sources: number; atCeiling: boolean;
 }> {

@@ -68,6 +68,42 @@ because signatures are checked against stored bytes verbatim.
 a path in the customer's own system that never called us. They send references,
 never credentials — we still hold no vendor access.
 
+## Running it — `ratchet-reconcile`
+
+The endpoint solves *remembering*. It did not solve *doing*: comparing meant
+hand-pulling the vendor's records and deriving the keys your system should have
+used, which is real per-vendor engineering, so it happened when somebody was
+already suspicious. That is the wrong time — the value of the comparison is
+seeing the gap before anyone suspects anything.
+
+`packages/ratchet-reconcile` closes that. It runs in the **customer's**
+infrastructure, holds the **customer's** vendor credential, and pushes to us, so
+nothing about our trust boundary changes: we still hold no vendor access and
+make no outbound call into a customer system.
+
+Three things in it are load-bearing and easy to undo by accident:
+
+- **`--dry-run` sends nothing at all.** Every `POST /v1/reconcile` calls
+  `recordRun`, which resets the cadence clock. A dry run that reached the
+  endpoint would mark the check as done having compared nothing, and the real
+  check would then be skipped for a full cadence on the strength of a rehearsal.
+  This is why dry-run returns before the posting function rather than passing it
+  a flag — a flag is something a later edit threads past.
+- **Exit 3 is inconclusive**, separate from 0 and 1. `partial: true` means an
+  unmatched key may belong to an effect we never examined; calling that clean is
+  a false all-clear and calling it ungated accuses working code.
+- **Unattributable is a third bucket.** An action the vendor recorded with no
+  idempotency key might be ungated, or a gated effect whose caller did not
+  forward the vendor key. It is counted, reported, and never added to the ungated
+  total — the same rule as an expired lease.
+
+**Stripe first, and only Stripe, on purpose.** It is the one vendor in the
+readable-back class (`request.idempotency_key` on the Events API), so it proves
+the loop without also solving key derivation. `github`, `slack`, `notion` and
+`figma` cannot be reconciled this way *at all*: they have no idempotency
+mechanism, so an ungated action carries no key anywhere by construction. Those
+need action-identity matching, which is a different capability.
+
 ## Coverage — `GET /v1/coverage`
 
 Reconciliation answers "which of these actions went through the gate". Coverage

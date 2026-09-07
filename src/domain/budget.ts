@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Deimos AI LLC
 import type { PoolClient } from 'pg';
-import type { Db } from '../db/pool.js';
+import { getPool, type Db } from '../db/pool.js';
 
 /**
  * External-spend budgets.
@@ -242,6 +242,47 @@ export async function adjustSpend(
   for (const scope of scopes) {
     await addSpend(tx, args.workspaceId, scope, day, args.deltaMicros, deltaCount);
   }
+}
+
+/**
+ * How long a spend window is kept after its day ends.
+ *
+ * Nothing reads a past day. `getSpendSummary` selects `WHERE day = $2` with
+ * today's date, and `reserveSpend` and `adjustSpend` only ever touch the
+ * current day's row — so once a day is over its rows are write-only, and they
+ * were accumulating for the life of the deployment. `spend_windows` was the
+ * only windowed table in the schema with no retention at all while
+ * `page_feedback_windows`, `provision_windows`, `provision_global` and
+ * `run_budgets` all had some.
+ *
+ * Seven days rather than one, deliberately. One would be correct for what reads
+ * these today and leaves no margin for the two things most likely to want them
+ * next: an operator asking what a workspace spent when a bill is disputed, and
+ * the rolling-window work in issue #15, which needs a trailing 24 hours and
+ * would silently lose its oldest bucket to a horizon set at exactly one day.
+ *
+ * It is deliberately NOT long enough to be a record. If a "spend over the last
+ * 30 days" view is ever wanted, the read path and the retention should be
+ * decided together rather than the data being kept speculatively against a
+ * feature that may never arrive.
+ */
+export const SPEND_WINDOW_RETENTION_DAYS = 7;
+
+/**
+ * Drop spend windows nothing will read again. Called by the worker GC sweep.
+ *
+ * The comparison is on `day`, a DATE, against the CURRENT date rather than a
+ * timestamp — so this can never take today's row, whatever the clock is doing
+ * at the moment the sweep runs. A `now() - interval` form would delete a row
+ * mid-day the instant the interval elapsed.
+ */
+export async function gcSpendWindows(db: Db = getPool()): Promise<number> {
+  const { rowCount } = await db.query(
+    `DELETE FROM spend_windows
+      WHERE day < (now() AT TIME ZONE 'utc')::date - make_interval(days => $1)`,
+    [SPEND_WINDOW_RETENTION_DAYS],
+  );
+  return rowCount ?? 0;
 }
 
 export async function getSpendSummary(

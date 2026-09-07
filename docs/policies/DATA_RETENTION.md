@@ -41,6 +41,23 @@ to **7 days** and capped at **400**. Expired results are pruned; the decision
 record and its receipt survive, so the audit trail is not shortened by result
 retention.
 
+**Operational windows** — the counters that enforce ceilings — are kept only as
+long as something reads them, and each horizon is a named constant rather than a
+literal inside a query:
+
+| Table | Kept | Why that long |
+|---|---|---|
+| `page_feedback_windows` | 1 hour | Only the current minute is ever read |
+| `provision_windows` | 3 hours | Per-source abuse counting is hourly |
+| `provision_global` | 48 hours | The global ceiling is hourly; a day of history aids triage |
+| `spend_windows` | 7 days | Only today is read. The margin covers a disputed bill and the trailing 24 hours a rolling window would need |
+| `run_budgets` | configurable | Per-run wallets, kept while a run may still be inspected |
+
+`spend_windows` had **no** retention until 7 September 2026 and was growing for
+the life of the deployment — one row per workspace, per scope, per day, where
+"scope" includes an entry per declared dimension *value*. It was the only
+windowed table in the schema without a horizon, which is how it was missed.
+
 Logs redact `authorization`, `x-api-key`, `cookie`, payment signature headers and
 `set-cookie`. This list is extended whenever a credential header is added.
 

@@ -21,6 +21,7 @@ import { sweepStructuring } from '../domain/structuring-sweep.js';
 import { noticeNewEffectTypes } from '../domain/novel-effect-types.js';
 import { gcWindows as gcFeedbackWindows } from '../domain/feedback.js';
 import { gcProvisionWindows, provisionPressure, provisionState } from '../domain/provisioning.js';
+import { gcSpendWindows } from '../domain/budget.js';
 import { gcRunBudgets } from '../domain/run-budget.js';
 import { deliverDue } from './webhooks.js';
 import { watchChainOnce, expireQuotes } from './chain.js';
@@ -296,8 +297,14 @@ async function main() {
     const provision = await gcProvisionWindows();
     // Wallets for runs nobody will look at again.
     const wallets = await gcRunBudgets();
+    // Spend windows for days that are over. Nothing reads a past day — the
+    // summary selects today, and both writers only touch today's row — so these
+    // were write-only from the moment their day ended, and accumulating for the
+    // life of the deployment. One row per workspace, per scope, per day, and
+    // "scope" includes one entry per declared dimension VALUE.
+    const spend = await gcSpendWindows();
     return effects + stale.sessions + stale.deliveries + stale.anonymous
-         + windows + provision + wallets;
+         + windows + provision + wallets + spend;
   });
 
   // Receipts are signed on the request path and linked here. Runs often,

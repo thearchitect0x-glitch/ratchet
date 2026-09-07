@@ -26,6 +26,7 @@
  */
 import { stripe } from '../lib/connectors/stripe.mjs';
 import { reconcile, exitCodeFor, EXIT } from '../lib/reconcile.mjs';
+import { redactWith } from '../lib/redact.mjs';
 
 const CONNECTORS = { stripe };
 
@@ -110,7 +111,9 @@ if (connector.maxWindowDays && spanDays > connector.maxWindowDays) {
 
 const quiet = has('quiet');
 const asJson = has('json');
-const log = quiet || asJson ? () => {} : (m) => err(`  ${m}`);
+const log = quiet || asJson
+  ? () => {}
+  : (m) => err(`  ${redactWith(String(m), credential, apiKey)}`);
 
 try {
   const summary = await reconcile({
@@ -145,6 +148,10 @@ try {
   }
   process.exit(exitCodeFor(summary));
 } catch (e) {
-  err(`ratchet-reconcile: ${e.message}`);
+  // Vendors echo the key back in their own errors — Stripe answers a bad key
+  // with `Invalid API Key provided: sk_...`. This runs in CI, where stderr is a
+  // build log, so the message is scrubbed both by pattern and against the exact
+  // credentials this process was handed.
+  err(`ratchet-reconcile: ${redactWith(e.message, credential, apiKey)}`);
   process.exit(EXIT.USAGE);
 }

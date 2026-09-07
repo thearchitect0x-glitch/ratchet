@@ -26,8 +26,17 @@ describe('version consistency', () => {
     assert.match(repo, /^\d+\.\d+\.\d+$/);
   });
 
-  test('the published bridge declares the same version', () => {
-    assert.equal(json('packages/ratchet-mcp/package.json').version, repo);
+  /*
+   * Every published package, not just the first one. ratchet-reconcile shipped
+   * without being added here, so it could have drifted to its own version and
+   * nothing would have said so — which is exactly the five-declarations,
+   * four-answers state this file was written to end.
+   */
+  test('every published package declares the same version', () => {
+    for (const pkg of ['ratchet-mcp', 'ratchet-reconcile']) {
+      assert.equal(json(`packages/${pkg}/package.json`).version, repo,
+        `packages/${pkg} has drifted from the repository version`);
+    }
   });
 
   test('the MCP registry manifest agrees, for the server and its package', () => {
@@ -63,6 +72,7 @@ describe('listing copy', () => {
   test('every declared description is non-empty', () => {
     assert.ok((json('package.json').description as string)?.length > 20);
     assert.ok((json('packages/ratchet-mcp/package.json').description as string)?.length > 20);
+    assert.ok((json('packages/ratchet-reconcile/package.json').description as string)?.length > 20);
   });
 });
 

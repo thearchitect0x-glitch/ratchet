@@ -118,6 +118,18 @@ jobs:
       #
       # Generated after the signature check above, so the bill of materials
       # describes a commit whose tag verified.
+      # npm sbom reads the INSTALLED tree, and nothing here installed one, so
+      # every dependency came back missing and the step had never once
+      # succeeded — it was added on 5 Sep, and the last publish that worked was
+      # on the 3rd.
+      #
+      # A full install, not --omit=dev. `npm sbom --omit dev` filters the OUTPUT
+      # but still validates the whole tree against the lockfile, so a
+      # production-only install fails with ESBOMPROBLEMS on the devDependencies
+      # it was told to ignore. Verified both ways rather than assumed.
+      - name: Install, so there is a tree to describe
+        run: npm ci
+
       - name: Software bill of materials
         run: |
           set -euo pipefail

@@ -63,9 +63,29 @@ describe('rate limits are enforced per plan, not globally', () => {
   test('a free workspace is held to the free plan limit', async () => {
     const ws = await workspaceOnPlan('free', 'rl-free');
     const limit = PLANS.free.rateLimitPerMinute;
-    const ok = await burst(ws.key.plaintext, limit + 15);
-    assert.equal(ok, limit,
-      `free plan publishes ${limit}/min and must enforce exactly that, got ${ok}`);
+
+    /*
+     * `assert.equal(ok, limit)` after a burst of limit + 15 is what this used to
+     * be, and it asserted a guarantee the system does not make. Windows are
+     * fixed to wall-clock boundaries, so a burst straddling one has its counter
+     * reset halfway and MORE than the limit is accepted — documented in
+     * KNOWN_LIMITATIONS §2 as up to twice the published number.
+     *
+     * The helper directly above already existed for this, with a docstring
+     * saying it fails "roughly one run in two hundred, which is exactly often
+     * enough to fail CI occasionally and never fail locally". This test simply
+     * never used it. It came due on a Dependabot bump of fastify, where a red
+     * check on an unrelated dependency is precisely how people learn to merge
+     * past CI.
+     */
+    const cap = limit * 2 + 10;
+    const refusedAt = await driveUntilRefused(ws.key.plaintext, cap);
+
+    assert.ok(refusedAt !== null,
+      `free plan publishes ${limit}/min and never refused within ${cap} requests`);
+    assert.ok(refusedAt - 1 <= limit * 2,
+      `${refusedAt - 1} requests were accepted against a ${limit}/min limit; a single `
+      + 'boundary crossing permits at most twice the limit, so this is the limiter failing');
   });
 
   test('a higher plan really receives its larger published limit', async () => {

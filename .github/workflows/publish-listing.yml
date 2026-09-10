@@ -1,0 +1,87 @@
+# Publish the MCP Registry listing, using the key that is already a secret.
+#
+# WHY THIS EXISTS. The registry is canonical: Glama, mcp.so and Smithery consume
+# its data, so whatever it says is what every marketplace tells people to
+# install. It has been advertising 0.1.1 and 0.2.0 while npm ships 0.3.0.
+#
+# `listing.yml` already notices the drift daily and says how to fix it. The fix
+# was a command a person had to remember to run, holding a key on their laptop —
+# which is why it had not been run since 1 September. The key has been a repo
+# secret the whole time, so the only thing missing was something to run it.
+#
+# Nobody handles the key. It goes from the secret store to a process that exits.
+name: publish-listing
+
+on:
+  # Cutting a release is exactly when the listing goes stale, so this is when it
+  # should be republished. Kept separate from publish.yml rather than appended
+  # to it: that workflow's job is getting packages onto npm, and a registry
+  # outage must not make a successful npm publish look failed.
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-listing
+  cancel-in-progress: false
+
+jobs:
+  listing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: '22'
+
+      # Pinned by version AND digest. An unpinned download is a supply-chain
+      # hole in the job that publishes what every marketplace repeats.
+      - name: Install mcp-publisher
+        env:
+          VERSION: v1.8.1
+          SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+        run: |
+          set -euo pipefail
+          url="https://github.com/modelcontextprotocol/registry/releases/download/${VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          curl -fsSL "$url" -o /tmp/mcp-publisher.tar.gz
+          echo "${SHA256}  /tmp/mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/mcp-publisher.tar.gz -C /tmp
+          sudo install /tmp/mcp-publisher /usr/local/bin/mcp-publisher
+          mcp-publisher --version
+
+      # npm answers "your package is being processed and may take a few minutes
+      # to become available" right after a publish, and publish-registry.sh
+      # refuses to publish a listing that disagrees with npm. Without this the
+      # release path would fail on propagation lag and look like a real
+      # mismatch, which is the confusing kind of red.
+      - name: Wait for npm to serve the version the listing points at
+        run: |
+          set -euo pipefail
+          want=$(node -p "require('./server.json').packages[0].version")
+          name=$(node -p "require('./server.json').packages[0].identifier")
+          for i in $(seq 1 20); do
+            have=$(npm view "$name" version 2>/dev/null || true)
+            if [ "$have" = "$want" ]; then echo "  npm has $name@$have"; exit 0; fi
+            echo "  attempt $i: npm has '${have:-nothing}', want $want"
+            sleep 15
+          done
+          echo "::error::npm never served $name@$want. Nothing published."
+          exit 1
+
+      - name: Publish the listing
+        env:
+          MCP_REGISTRY_PRIVATE_KEY: ${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MCP_REGISTRY_PRIVATE_KEY:-}" ]; then
+            echo "::error::MCP_REGISTRY_PRIVATE_KEY is not set; nothing published."
+            exit 1
+          fi
+          npm run publish:registry
+
+      - name: Confirm the drift is gone
+        run: npm run check:listing

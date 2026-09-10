@@ -80,7 +80,20 @@ if [ -z "${MCP_REGISTRY_PRIVATE_KEY:-}" ]; then
 fi
 [ -n "$MCP_REGISTRY_PRIVATE_KEY" ] || { red "No signing key supplied."; exit 1; }
 
-# Passed on stdin rather than argv so it never appears in `ps` output.
+# THE KEY IS ON THE COMMAND LINE, AND THAT IS NOT A CHOICE.
+#
+# This comment used to claim the opposite — "passed on stdin rather than argv so
+# it never appears in `ps` output" — while the very next line passed it as
+# --private-key. mcp-publisher 1.8.1 offers no stdin and no environment option;
+# `login --help` lists `-private-key string` and nothing else. So for the
+# duration of this call the key is visible to anything that can read the process
+# table on this machine. That is exactly how four live credentials leaked from
+# this project on 6 September.
+#
+# It cannot be fixed here, so it is stated instead. The mitigation is WHERE this
+# runs: .github/workflows/publish-listing.yml does it on a single-tenant
+# ephemeral runner that is destroyed afterwards, rather than on a laptop that
+# stays up for weeks. Prefer the workflow; this path is for when CI cannot.
 mcp-publisher login http --domain "$DOMAIN" --private-key "$MCP_REGISTRY_PRIVATE_KEY" >/dev/null
 unset MCP_REGISTRY_PRIVATE_KEY
 green "  authenticated as  : $DOMAIN"

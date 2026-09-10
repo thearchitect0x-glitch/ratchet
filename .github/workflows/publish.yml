@@ -52,12 +52,29 @@ jobs:
         run: |
           set -euo pipefail
           for f in bin/*.mjs lib/*.mjs lib/connectors/*.mjs; do node --check "$f"; done
-          node bin/ratchet-reconcile.mjs --help | grep -q 'ratchet-reconcile' \
+
+          help=$(node bin/ratchet-reconcile.mjs --help)
+          printf '%s' "$help" | grep -q 'ratchet-reconcile' \
             || { echo "--help produced nothing usable"; exit 1; }
+
+          # Refusing an unknown vendor is SUPPOSED to exit non-zero, so the
+          # output is captured before it is examined. Piping it into grep under
+          # `set -o pipefail` fails on the adapter's own correct exit code —
+          # which is what happened on the first attempt at v0.3.0, and it read
+          # as "unknown vendor was not refused" when the refusal was working
+          # perfectly. Assert the code as well, since it is the contract a cron
+          # branches on.
+          #
           # No RATCHET_API_KEY on purpose: a dry run must not require one, or
           # people paste a production key in order to rehearse.
-          node bin/ratchet-reconcile.mjs --vendor nope --effect-type x 2>&1 \
-            | grep -q 'Unknown --vendor' || { echo "unknown vendor was not refused"; exit 1; }
+          set +e
+          out=$(node bin/ratchet-reconcile.mjs --vendor nope --effect-type x 2>&1)
+          code=$?
+          set -e
+          printf '%s' "$out" | grep -q 'Unknown --vendor' \
+            || { echo "unknown vendor was not refused; got: $out"; exit 1; }
+          [ "$code" = "2" ] \
+            || { echo "expected exit 2 for a usage error, got $code"; exit 1; }
 
       # Provenance answers "which workflow, at which commit". It does not answer
       # "was that commit the one the maintainer released" — a release can be cut

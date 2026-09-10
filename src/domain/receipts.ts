@@ -30,7 +30,13 @@ import type { PoolClient } from 'pg';
 import { getPool, type Db } from '../db/pool.js';
 import { config } from '../lib/config.js';
 
-export const RECEIPT_VERSION = 'ratchet-receipt-v3';
+/*
+ * v4 adds the authority fields. Older receipts still verify: verification runs
+ * against the bytes we stored, not a re-serialisation, so a v3 body checks out
+ * unchanged against the same key. The bump tells a verifier which fields it may
+ * expect to find, not which it must.
+ */
+export const RECEIPT_VERSION = 'ratchet-receipt-v4';
 
 /**
  * Ed25519 keypair derived deterministically from AUTH_SECRET.
@@ -111,6 +117,35 @@ export interface ReceiptBody {
   /** Which key signed this. Inside the signature, so it cannot be repointed. */
   kid: string;
   decided_at: string;
+
+  /*
+   * UNDER WHOSE AUTHORITY, AND UP TO HOW MUCH.
+   *
+   * A receipt used to answer "did this happen, and did it happen once". It
+   * could not answer the question an auditor actually asks first: who let it.
+   * These carry the authority in force at the moment of the decision, so the
+   * signed evidence covers the permission as well as the act.
+   *
+   * FLAT, NOT NESTED, AND THAT IS DELIBERATE. `canonicalBody` sorts top-level
+   * keys only. A nested object would serialise in insertion order, so an
+   * independent implementation could not reproduce our bytes — which is the
+   * property that makes offline verification possible by someone who is not us.
+   * Flat fields keep the canonical form trivially reproducible.
+   *
+   * Optional, because every receipt written before this existed has none and
+   * must keep verifying. Verification runs against the STORED bytes, so an old
+   * receipt is unaffected either way; the optionality is for readers of the
+   * type.
+   */
+
+  /** The API key that authorised this effect. The id, never the secret or prefix. */
+  authority_key_id?: string;
+  /** The per-effect ceiling in force for this effect type, or null if none. */
+  authority_max_cost_micros?: number | null;
+  /** Above this declared cost the effect would have needed approval. Null if never. */
+  authority_approval_above_micros?: number | null;
+  /** Who approved it, when it passed through the approval flow. Null otherwise. */
+  authority_approved_by?: string | null;
 }
 
 /**

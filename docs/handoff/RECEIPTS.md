@@ -68,6 +68,59 @@ because signatures are checked against stored bytes verbatim.
 a path in the customer's own system that never called us. They send references,
 never credentials — we still hold no vendor access.
 
+## What a receipt says about authority (v4, 10 Sep 2026)
+
+A receipt used to answer two questions: did this happen, and did it happen once.
+It could not answer the one an auditor asks first — **who let it**.
+
+The authority was always real. An API key made the call, a per-effect ceiling
+was checked, an approval threshold either applied or did not, and sometimes a
+named person approved. None of it was in the signed evidence, so a receipt could
+prove an action occurred and prove nothing about the permission behind it.
+
+Four flat fields now carry it, and the signature covers them:
+
+| Field | Meaning |
+|---|---|
+| `authority_key_id` | The API key that authorised the effect |
+| `authority_max_cost_micros` | The per-effect ceiling in force, or `null` |
+| `authority_approval_above_micros` | The threshold above which approval was required, or `null` |
+| `authority_approved_by` | Who approved it, when it went through the approval flow |
+
+**The key id, never the prefix and never the secret.** A receipt is the one
+artefact designed to be handed to somebody outside the workspace, so it must not
+carry anything that helps authenticate as the caller. A test asserts the body
+contains nothing credential-shaped.
+
+**Flat, not nested, and that is load-bearing.** `canonicalBody` sorts top-level
+keys only. A nested `authority` object would serialise in insertion order, so an
+independent implementation could not reproduce our bytes — and reproducing our
+bytes is the whole basis of offline verification by someone who is not us.
+
+**Null is a claim, not an absence.** No ceiling records `null`, never a missing
+field and never `0`; zero would mean "no spend permitted", which is the
+opposite.
+
+**Older receipts still verify.** Verification runs against the bytes we stored,
+never a re-serialisation, so a v3 body checks out unchanged against the same
+key. Asserted rather than assumed — "old evidence stops verifying" is the one
+upgrade failure that cannot be repaired afterwards.
+
+**`approved_by` is read only when approval was possible.** Fetching it on every
+begin would add a query to a path where nine round trips were deliberately
+collapsed into one. A workspace with no approval threshold cannot have an
+approver, so there is nothing to look up. Today that is every workspace: the
+approval flow has never fired once across the whole effect table.
+
+### What this deliberately is not
+
+It is not a grant object. A full authority system — signed, attenuable,
+quorum-capable, revocable grants with their own chain and an open spec — was
+specified and declined for now. The primitive it would build on, the approval
+flow, has **zero** uses across every effect ever gated. This cites the authority
+that already exists, which is the part that extends what receipts are for
+without inventing demand.
+
 ## Running it — `ratchet-reconcile`
 
 The endpoint solves *remembering*. It did not solve *doing*: comparing meant

@@ -587,6 +587,24 @@ export async function beginEffect(input: BeginInput): Promise<BeginResult> {
         + 'the same idempotency_key is blocked until someone resolves it.';
     }
 
+    /*
+     * Who approved it, read only when approval was ever possible.
+     *
+     * `approved_by` lives on the effect row, and fetching it unconditionally
+     * would add a query to every begin — on a path where nine round trips were
+     * deliberately collapsed into one. A workspace with no approval threshold
+     * cannot have an approver, so there is nothing to look up. Today that is
+     * every workspace: the approval flow has never fired once across the whole
+     * effect table, which is exactly why this must not cost the common case
+     * anything.
+     */
+    let approvedBy: string | null = null;
+    if (policy.approvalAboveMicros !== null) {
+      const { rows } = await tx.query<{ approved_by: string | null }>(
+        'SELECT approved_by FROM effects WHERE id = $1', [decided.effectId]);
+      approvedBy = rows[0]?.approved_by ?? null;
+    }
+
     await writeReceipt(tx, {
       v: RECEIPT_VERSION,
       workspace_id: input.workspaceId,
@@ -599,6 +617,11 @@ export async function beginEffect(input: BeginInput): Promise<BeginResult> {
       payload_fingerprint: fingerprint.toString('hex'),
       cost_micros: input.estimatedCostMicros,
       decided_at: now.toISOString(),
+      // The authority in force at this decision. See ReceiptBody.
+      authority_key_id: input.apiKeyId,
+      authority_max_cost_micros: policy.maxCostMicros,
+      authority_approval_above_micros: policy.approvalAboveMicros,
+      authority_approved_by: approvedBy,
     });
     return decided;
   });

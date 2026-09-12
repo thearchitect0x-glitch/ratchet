@@ -327,7 +327,11 @@ describe('proof and reconciliation tools over MCP', () => {
 
     const { verifyReceipt } = await import('../../src/domain/receipts.js');
     const rec = r.data.receipts[0];
-    assert.ok(verifyReceipt(JSON.stringify(rec.body), rec.signature, r.data.public_key),
+    // Against the bytes as given. Re-serialising a parsed object to make it
+    // verify is the work a model should not have to guess at, and it only ever
+    // worked because JSON.parse happened to preserve canonical key order.
+    assert.equal(typeof rec.body, 'string', 'body must be the signed bytes');
+    assert.ok(verifyReceipt(rec.body, rec.signature, r.data.public_key),
       'a receipt handed to a model must verify with the key handed alongside it');
   });
 

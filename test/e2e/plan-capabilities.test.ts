@@ -49,7 +49,14 @@ interface Probe { cap: string; url: string; method: 'GET' | 'POST'; payload?: un
 
 const GATED: Probe[] = [
   { cap: 'reversibleGroups', url: '/v1/groups', method: 'GET' },
-  { cap: 'signedReceipts', url: '/v1/receipts/audit', method: 'GET' },
+  /*
+   * signedReceipts is NOT here any more. Free reads its own receipts from
+   * 12 Sep 2026 — a receipt is the proof that the decision happened and was not
+   * altered, and charging to see it was charging for the evidence. Receipts
+   * were always written for every plan; only the read was gated, so opening it
+   * costs no compute. The assertion that free still cannot reach it moved to
+   * test/e2e/free-receipts.test.ts, inverted.
+   */
   { cap: 'reconciliation', url: '/v1/reconcile', method: 'POST',
     payload: { effect_type: 'email.send', keys: ['probe-key'] } },
   // The schedule reads the records the comparison writes, so the same capability
@@ -83,6 +90,18 @@ describe('capability gates actually refuse', () => {
         `${probe.cap}: the refusal should say where it is available`);
     });
   }
+
+  /**
+   * The capability free now has, asserted here too so the boundary is stated
+   * from both sides: this file lists what free is refused, and refusing to
+   * mention receipts at all would leave a reader unsure whether it was dropped
+   * or forgotten.
+   */
+  test('free is NOT refused its own receipts', async () => {
+    const ws = await workspace('free');
+    assert.notEqual((await get(ws.key.plaintext, '/v1/receipts/audit')).statusCode, 403,
+      'a receipt is the evidence for a decision; free may read its own');
+  });
 
   test('Pro gets groups and receipts, and is still refused reconciliation', async () => {
     const ws = await workspace('pro');

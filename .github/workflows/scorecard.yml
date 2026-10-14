@@ -36,7 +36,7 @@ jobs:
       # billing disabled — every run fails with "This API method requires
       # billing to be enabled" before it looks at a single file. Their
       # infrastructure, not ours; v2.4.4 pulls from ghcr.io instead.
-      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc  # v2.4.4
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e  # v2.5.0
         with:
           results_file: results.sarif
           results_format: sarif

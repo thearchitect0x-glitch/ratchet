@@ -21,6 +21,51 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 const root = new URL('../../', import.meta.url);
 const read = (p: string) => readFileSync(new URL(p, root), 'utf8');
 
+describe('the worker waits for the database instead of exiting', () => {
+  test('main waits for the database before anything else touches it', () => {
+    const main = read('src/worker/main.ts');
+    const wait = main.indexOf('await waitForDatabase(');
+    assert.ok(wait > -1, 'a bare SELECT 1 at start exits on a failover; Fly gives up after 10 tries');
+    assert.ok(wait < main.indexOf('await awaitSchema()'));
+    assert.doesNotMatch(main.slice(main.indexOf('async function main()'), wait), /getPool\(\)\.query\('SELECT 1'\);/);
+  });
+
+  test('it retries with a capped backoff and returns once reachable', async () => {
+    const { waitForDatabase } = await import('../../src/worker/boot.js');
+    let calls = 0; const slept: number[] = []; const logs: string[] = [];
+    const attempts = await waitForDatabase(async () => {
+      if (++calls < 8) throw new Error('Connection terminated unexpectedly');
+    }, { log: (_l, m) => logs.push(m), sleep: async (ms) => { slept.push(ms); }, maxDelayMs: 30_000 });
+    assert.equal(attempts, 8);
+    assert.deepEqual(slept, [1000, 2000, 4000, 8000, 16000, 30000, 30000]);
+    assert.ok(logs.filter((m) => /waiting, not exiting/.test(m)).length === 7);
+  });
+
+  test('it never gives up while the process is meant to run', async () => {
+    const { waitForDatabase } = await import('../../src/worker/boot.js');
+    let calls = 0;
+    await waitForDatabase(async () => { if (++calls < 200) throw new Error('down'); },
+      { log: () => {}, sleep: async () => {} });
+    assert.equal(calls, 200, 'any fixed limit is a guess at how long a failover lasts');
+  });
+
+  test('it stops waiting when the process is shutting down', async () => {
+    const { waitForDatabase } = await import('../../src/worker/boot.js');
+    await assert.rejects(waitForDatabase(async () => { throw new Error('down'); },
+      { log: () => {}, sleep: async () => {}, isRunning: () => false }), /down/);
+  });
+});
+
+describe('the worker count is a word, never a number', () => {
+  test('states', async () => {
+    const { workersState } = await import('../../src/worker/heartbeat.js');
+    assert.equal(workersState(1, 2), 'degraded');
+    assert.equal(workersState(2, 2), 'ok');
+    assert.equal(workersState(3, 2), 'ok');
+    assert.equal(workersState(1, 0), 'unchecked');
+  });
+});
+
 describe('the worker waits for the schema it was built against', () => {
   const main = read('src/worker/main.ts');
 

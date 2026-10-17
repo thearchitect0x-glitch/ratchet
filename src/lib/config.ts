@@ -192,6 +192,8 @@ export const config = {
     // Zero disables the check. An operator who has not said how many replicas
     // to expect should not be told one is missing.
     get expectedReplicas() { return int('EXPECTED_REPLICAS', 0); },
+    // Same contract as EXPECTED_REPLICAS: zero disables the check.
+    get expectedWorkers() { return int('EXPECTED_WORKERS', 0); },
   },
 
   // Read live from the environment rather than captured at import. Payment

@@ -43,6 +43,21 @@ The uptime probe failed from 19:44 onward and the alert fired. An operator notic
    and two active standbys. `/workerz` replication returned to `ok`.
 3. A manual uptime run passed every check, including begin → replay → report.
 
+4. **The old primary was cleaned up the same night.** `6835447a` had been demoted to a standby.
+   Its Postgres was stopped, and it was no longer a repmgr member, but its machine was still
+   running. Its slot `repmgr_slot_1159710080` kept `/workerz` at `replication: degraded`.
+   `pg_controldata` showed it `shut down in recovery` at `101/1000028`, which is 40 bytes past the
+   timeline-5 fork at `101/1000000`: its own shutdown checkpoint, nothing more. It held no writes
+   the new primary lacked. Its volume was snapshotted (`vs_K3K67jajeJDfZqvNagDDQKZ`, 5-day
+   retention). Then the machine and volume were destroyed and the orphan slot dropped. The result
+   was one primary, two active slots, and `replication: ok`.
+
+**Why the primary failed at 19:44 is not known.** Its exit was `exit_code=2, oom_killed=false`,
+and Fly's log retention had dropped the lines that would say more by the time anyone looked.
+Disk was at 4%. This is the third primary loss since 1 Sep (see the 1 Sep and 2 Sep incidents),
+all on `shared-cpu-1x` in one region. If it happens again, capture `flyctl logs` within the
+hour.
+
 ## What changed
 
 - **The worker waits for the database instead of exiting** (`src/worker/boot.ts`). It retries

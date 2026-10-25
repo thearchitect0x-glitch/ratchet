@@ -25,8 +25,10 @@ on:
   # outage must not make a successful npm publish look failed.
   release:
     types: [published]
-  # By hand, run it on the latest release tag (gh workflow run publish-listing.yml
-  # --ref vX.Y.Z): the release environment refuses a branch.
+  # By hand, run it on the latest release tag, which must be one cut after this
+  # change (gh workflow run publish-listing.yml --ref vX.Y.Z). A run uses this
+  # file as it stands at that tag, and no tag cut before this change carries it
+  # with the release environment. The release environment refuses a branch.
   workflow_dispatch:
 
 permissions:

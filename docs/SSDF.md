@@ -108,11 +108,23 @@ gh attestation verify ratchet-mcp-X.Y.Z.tgz --bundle ratchet-mcp-X.Y.Z.sigstore.
 `ratchet-reconcile`, use its own version and the tag of the release that
 published it. 0.2.1 and later were published from their release tags; 0.2.0 was
 published by a manual run on `main`, so its source ref is `refs/heads/main`.
+`ratchet-mcp` 0.1.0 and 0.1.1 were published without provenance: npm holds no
+attestation for either, so neither check can verify them.
 
 The publish workflow **refuses to publish from a tag whose signature does not
 verify** — provenance answers "which workflow, at which commit", not "was that
 the commit the maintainer released", and a release can otherwise be cut from any
 tag at all.
+
+Publishing also waits for a maintainer. Both publishing jobs run in a `release`
+environment that admits only `v*` tags and holds each run until a maintainer
+approves it, and only an admin can create, move or delete a tag. The tag is read
+after that wait, so the signature check also confirms the tag still points at
+the commit the run checked out: a tag moved in the meantime stops the publish.
+**Residual:** the approval does not stop a single compromised admin account.
+Either admin can push a tag, publish a release and approve its run alone, and
+can change the tag rules back; the owner can also change the environment. It
+stops everyone else.
 
 *No SLSA level is claimed.* The only tooling that certified Build L3 for npm on
 GitHub Actions is no longer maintained, and neither npm nor GitHub documents a
@@ -130,6 +142,13 @@ two formats procurement tooling reads. A lockfile is not a substitute: it
 records what was resolved, not what shipped, and nobody else's tooling reads it.
 The bill is generated *after* the tag signature check, so it describes a commit
 whose tag verified.
+
+**Partial:** a release's files can still be replaced. Releases are not locked
+(GitHub's immutable releases), because the SBOM is attached after the release is
+published and a locked release refuses that. So anyone with write access, or a
+workflow given `contents: write`, can replace or delete the SBOM files on a
+release. The npm packages are not affected: npm never accepts a second upload of
+a version, and their provenance names the commit.
 
 ---
 
@@ -240,6 +259,8 @@ Stated here rather than left to be inferred:
 |---|---|
 | PO.2 | Two people can act; one decides. Direction still rests on a single person. |
 | PO.5 | The developer workstation is not covered by a documented hardening standard. |
+| PS.2 | The release approval does not stop a single compromised admin account. |
+| PS.3 | A release's files (the SBOMs) stay replaceable: releases are not locked, because the SBOM is attached after publishing. |
 | RV.3 | Root cause analysis is per-defect, not periodic across defects. |
 
 PW.2 closed on 5 September 2026; PO.2 did not, and the distinction is worth

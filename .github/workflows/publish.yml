@@ -9,10 +9,18 @@
 # Needs an NPM_TOKEN secret (an automation token, not a publish-with-2FA one) or
 # the job is skipped rather than failed — a missing credential is a setup step,
 # not a broken build.
+#
+# The job runs in the `release` environment, so it starts only from a v* tag and
+# only after a maintainer approves the run. Keep NPM_TOKEN as a secret of that
+# environment rather than of the repository: a repository secret can be read by
+# a workflow pushed to any branch, an environment secret only by a job the
+# environment let through.
 name: publish
 on:
   release:
     types: [published]
+  # By hand, run it on the release tag (gh workflow run publish.yml --ref vX.Y.Z):
+  # the release environment refuses a branch.
   workflow_dispatch:
 
 permissions:
@@ -21,6 +29,7 @@ permissions:
 jobs:
   npm:
     runs-on: ubuntu-latest
+    environment: release     # waits for a maintainer's approval (Settings → Environments → release; v* tags only)
     permissions:
       contents: write        # to attach the SBOM to the release
       id-token: write        # what lets npm attach provenance
@@ -189,4 +198,4 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           echo "NPM_TOKEN is not set, so nothing was published."
-          echo "Add an automation token: gh secret set NPM_TOKEN"
+          echo "Add an automation token: gh secret set NPM_TOKEN --env release"

@@ -88,6 +88,27 @@ maintainer; GitHub reports `verified: true` for each. npm packages are published
 with `--provenance`, producing a SLSA v1 attestation bound to the exact workflow
 run and commit, verifiable with `npm audit signatures`.
 
+`npm audit signatures` proves the attestation is genuine. It does not check
+which workflow made it or from which ref, so a genuine attestation made by a
+workflow pushed to some other branch would pass it too. The strict check names
+both, and refuses a self-hosted runner:
+
+```bash
+npm pack ratchet-mcp@X.Y.Z               # downloads ratchet-mcp-X.Y.Z.tgz without installing it
+curl -fsSL https://registry.npmjs.org/-/npm/v1/attestations/ratchet-mcp@X.Y.Z \
+  | jq -c '.attestations[] | select(.predicateType == "https://slsa.dev/provenance/v1") | .bundle' \
+  > ratchet-mcp-X.Y.Z.sigstore.jsonl
+gh attestation verify ratchet-mcp-X.Y.Z.tgz --bundle ratchet-mcp-X.Y.Z.sigstore.jsonl --digest-alg sha512 \
+  --repo thearchitect0x-glitch/ratchet \
+  --signer-workflow thearchitect0x-glitch/ratchet/.github/workflows/publish.yml --source-ref refs/tags/vX.Y.Z \
+  --deny-self-hosted-runners
+```
+
+`--digest-alg sha512` because npm attests the tarball's SHA-512. For
+`ratchet-reconcile`, use its own version and the tag of the release that
+published it. 0.2.1 and later were published from their release tags; 0.2.0 was
+published by a manual run on `main`, so its source ref is `refs/heads/main`.
+
 The publish workflow **refuses to publish from a tag whose signature does not
 verify** — provenance answers "which workflow, at which commit", not "was that
 the commit the maintainer released", and a release can otherwise be cut from any

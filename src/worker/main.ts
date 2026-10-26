@@ -29,7 +29,8 @@ import { deliverEmails, generateAlerts } from './email.js';
 import { checkReplication } from './replication.js';
 import { runRecharges } from './recharge.js';
 import { startActivityFlusher, stopActivityFlusher } from '../domain/activity.js';
-import { recordOk, recordFailure, staleAfterMs } from './heartbeat.js';
+import { recordOk, recordFailure, staleAfterMs, recordPresence } from './heartbeat.js';
+import { waitForDatabase } from './boot.js';
 import { randomUUID } from 'node:crypto';
 
 const problems = assertProductionSafety();
@@ -171,7 +172,8 @@ async function awaitSchema(timeoutMs = 120_000): Promise<void> {
 }
 
 async function main() {
-  await getPool().query('SELECT 1');
+  // A failover must not become an outage: wait for the database, never exit.
+  await waitForDatabase(() => getPool().query('SELECT 1'), { log, isRunning: () => running });
   await awaitSchema();
   log('info', 'worker started', {
     leaseSweepIntervalMs: config.worker.leaseSweepIntervalMs,
@@ -182,6 +184,8 @@ async function main() {
   startWatchdog();
 
   loop('lease-sweep', config.worker.leaseSweepIntervalMs, () => drainExpiredLeases());
+  // Counted by /workerz against EXPECTED_WORKERS: the heartbeats cannot tell one worker from two.
+  loop('presence', 30_000, () => recordPresence(INSTANCE));
   loop('webhook-delivery', config.worker.webhookPollIntervalMs, () => deliverDue());
   // Only runs when the operator has configured a receiving address. The
   // watcher reads the chain and never holds a key.

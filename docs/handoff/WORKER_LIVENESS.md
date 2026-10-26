@@ -81,6 +81,19 @@ Several replicas share one row per loop. That is the right meaning: any healthy
 replica keeps it fresh, and the question being asked is "is this work being done
 by someone", not "is machine X alive".
 
+## Counting workers, not just loops
+
+Heartbeats answer "is this work being done by someone", but they cannot say
+how many workers are doing it. A second worker sat stopped for eight days with
+every check green. `worker_instances` holds one row per live process,
+refreshed every 30 s. `/workerz` reports `workers: ok | degraded | unchecked`
+against `EXPECTED_WORKERS`. `degraded` is a 200, for the same reason
+replication is: the survivor is still expiring leases. See
+[`INCIDENT_2026-10-16_WORKER_GAVE_UP.md`](INCIDENT_2026-10-16_WORKER_GAVE_UP.md).
+
+At start the worker waits for the database indefinitely (`src/worker/boot.ts`)
+rather than exiting, because Fly stops restarting after ten failures.
+
 ## Not done
 
 - Nothing alerts on `/workerz` automatically; it needs an external monitor.

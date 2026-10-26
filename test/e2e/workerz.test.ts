@@ -13,7 +13,7 @@ import { describe, test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../../src/api/app.js';
 import { setupDb, getPool, closePool } from '../helpers.js';
-import { recordOk } from '../../src/worker/heartbeat.js';
+import { recordOk, recordPresence } from '../../src/worker/heartbeat.js';
 
 describe('worker liveness endpoint', () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
@@ -82,6 +82,47 @@ describe('worker liveness endpoint', () => {
     const r = await workerz();
     assert.equal(r.statusCode, 200);
     assert.equal(JSON.parse(r.payload).replication, 'unobserved');
+  });
+
+  /**
+   * Heartbeats are keyed by loop, so they cannot tell one worker from two. A
+   * second worker sat stopped for eight days while this endpoint said "ok".
+   */
+  describe('the worker count', () => {
+    const prev = process.env.EXPECTED_WORKERS;
+    beforeEach(async () => { await getPool().query('DELETE FROM worker_instances'); });
+    after(() => { if (prev === undefined) delete process.env.EXPECTED_WORKERS; else process.env.EXPECTED_WORKERS = prev; });
+
+    test('one worker alive of two expected is "degraded", still 200', async () => {
+      process.env.EXPECTED_WORKERS = '2';
+      await recordOk(`e2e-w-${Date.now()}`, 'w-1', 2000);
+      await recordPresence('w-1');
+      const r = await workerz();
+      assert.equal(r.statusCode, 200, 'the survivor still expires leases; a restart loop fixes nothing');
+      assert.equal(JSON.parse(r.payload).workers, 'degraded');
+    });
+
+    test('both alive is "ok"', async () => {
+      process.env.EXPECTED_WORKERS = '2';
+      await recordOk(`e2e-w-${Date.now()}`, 'w-1', 2000);
+      await recordPresence('w-1'); await recordPresence('w-2');
+      assert.equal(JSON.parse((await workerz()).payload).workers, 'ok');
+    });
+
+    test('a worker that stopped checking in no longer counts', async () => {
+      process.env.EXPECTED_WORKERS = '2';
+      await recordOk(`e2e-w-${Date.now()}`, 'w-1', 2000);
+      await recordPresence('w-1'); await recordPresence('w-2');
+      await getPool().query(`UPDATE worker_instances SET last_seen_at = now() - interval '10 minutes' WHERE instance = 'w-2'`);
+      assert.equal(JSON.parse((await workerz()).payload).workers, 'degraded');
+    });
+
+    test('with no count stated it says "unchecked", never "ok"', async () => {
+      process.env.EXPECTED_WORKERS = '0';
+      await recordOk(`e2e-w-${Date.now()}`, 'w-1', 2000);
+      await recordPresence('w-1');
+      assert.equal(JSON.parse((await workerz()).payload).workers, 'unchecked');
+    });
   });
 
   test('a stalled loop is 503 and names the loop', async () => {

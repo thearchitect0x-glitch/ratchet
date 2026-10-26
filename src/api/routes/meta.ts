@@ -9,7 +9,7 @@ import { EVENT_TYPES } from '../../domain/events.js';
 import { MCP_TOOLS } from '../../mcp/tools.js';
 import { recipes } from '../../domain/integrate.js';
 import { VENDOR_PROFILES, DIRECTORY_PROFILES, type VendorProfile } from '../../domain/vendor-keys.js';
-import { workerHealth } from '../../worker/heartbeat.js';
+import { workerHealth, liveWorkers, workersState } from '../../worker/heartbeat.js';
 import { SERVER_INFO } from '../../mcp/protocol.js';
 import { emailQueueHealth } from '../../domain/email.js';
 import { provisionPressure, provisionState } from '../../domain/provisioning.js';
@@ -141,12 +141,16 @@ export default async function metaRoutes(app: FastifyInstance) {
       // unauthenticated stranger precisely how many more requests would shut
       // the door on everyone, which is a recipe rather than a status.
       const provisioning = provisionState(await provisionPressure());
+      // Fewer workers than expected is lost redundancy, not death: the survivor
+      // is still expiring leases, so it is a 200 with a word, like replication.
+      const workers = workersState(await liveWorkers(), config.worker.expectedWorkers);
       return {
         status: 'ok',
         loops: h.loops.length,
         replication: rep === undefined ? 'unobserved' : rep.lastError ? 'degraded' : 'ok',
         email: mail.deferred > 0 ? 'quota_exhausted' : mail.deadLastDay > 0 ? 'degraded' : 'ok',
         provisioning,
+        workers,
       };
     } catch {
       reply.code(503);

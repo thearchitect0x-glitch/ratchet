@@ -71,6 +71,20 @@ for (const p of ['/healthz', '/readyz']) {
     fail('replication', 'The replication watcher has not checked in, so replica health is unknown.');
   }
 
+  // Two workers and one look identical to every heartbeat, which is how a
+  // second worker sat stopped for eight days in October 2026 with this probe
+  // green. Fewer than expected is lost redundancy: the next failure is an outage.
+  const workers = r.json?.workers;
+  if (workers === 'degraded') {
+    fail('workers', 'Fewer worker processes are alive than EXPECTED_WORKERS. The survivor is still '
+      + 'expiring leases, but one more failure stops lease expiry entirely. '
+      + 'Run: flyctl status -a ratchet-gate, and flyctl machine start any stopped worker.');
+  } else if (workers === 'ok') {
+    ok('workers', 'all expected workers alive');
+  } else if (r.status === 200 && workers !== 'unchecked') {
+    fail('workers', 'The worker count was not reported, so redundancy is unknown.');
+  }
+
   /*
    * The one failure that silences the alert channel itself.
    *

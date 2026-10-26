@@ -29,6 +29,9 @@ primary_region = "sjc"
   # and no problems are indistinguishable unless somebody states the expected
   # number. Update this if the cluster is ever resized.
   EXPECTED_REPLICAS = "2"
+  # A second worker sat stopped for eight days in October 2026 with every check
+  # green. Counted the same way as replicas. Update if the worker count changes.
+  EXPECTED_WORKERS = "2"
 
 # Only the control plane serves HTTP. The worker has no inbound surface at all.
 [http_service]

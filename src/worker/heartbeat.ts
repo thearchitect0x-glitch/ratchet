@@ -151,3 +151,31 @@ export async function workerHealth(db: Db = getPool()): Promise<{
     loops,
   };
 }
+
+/** How recently a worker must have checked in to count as alive. Four missed beats. */
+export const PRESENCE_WINDOW_SECONDS = 120;
+
+/** Called on the worker's presence loop. Also forgets workers gone for a day. */
+export async function recordPresence(instance: string, db: Db = getPool()): Promise<void> {
+  await db.query(
+    `INSERT INTO worker_instances (instance) VALUES ($1)
+     ON CONFLICT (instance) DO UPDATE SET last_seen_at = now()`, [instance]);
+  await db.query(`DELETE FROM worker_instances WHERE last_seen_at < now() - interval '1 day'`);
+}
+
+/** Worker processes that have checked in within the presence window. */
+export async function liveWorkers(db: Db = getPool()): Promise<number> {
+  const { rows } = await db.query<{ n: string }>(
+    `SELECT count(*) AS n FROM worker_instances
+      WHERE last_seen_at > now() - make_interval(secs => $1)`, [PRESENCE_WINDOW_SECONDS]);
+  return Number(rows[0]?.n ?? 0);
+}
+
+/**
+ * The word /workerz reports. With no expectation stated there is nothing to be
+ * short of, so it says so rather than claiming "ok" about a count nobody set.
+ */
+export function workersState(live: number, expected: number): 'ok' | 'degraded' | 'unchecked' {
+  if (expected <= 0) return 'unchecked';
+  return live >= expected ? 'ok' : 'degraded';
+}

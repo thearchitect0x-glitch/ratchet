@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Deimos AI LLC
 import { stricterThan } from '../rate-limit.js';
+import { getEffect } from '../../domain/effects.js';
+import { errors } from '../../lib/errors.js';
 /**
  * Receipts, chain audit, and reconciliation.
  *
@@ -57,7 +59,8 @@ export default async function receiptRoutes(app: FastifyInstance) {
       tags: ['Receipts'], operationId: 'effectReceipts',
       summary: 'Signed receipts for every decision on one effect',
       description:
-        'One receipt per decision, in order. `signature` is over the exact bytes in `body`, '
+        'One receipt per decision, in order. `body` is the exact signed bytes as a string — '
+        + 'JSON.parse it for the fields, and verify `signature` against it unmodified. '
         + 'verifiable offline against /.well-known/ratchet-receipt-key. `chained` is false '
         + 'for a receipt the worker has not yet linked; that affects only tamper-evidence '
         + 'for the log as a whole, not the signature.',
@@ -65,6 +68,26 @@ export default async function receiptRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const effectId = (req.params as { effectId: string }).effectId;
+
+    /*
+     * Ownership first, and 404 when it is not yours.
+     *
+     * This used to answer 200 with an empty list for an effect in somebody
+     * else's workspace, while the sibling GET /v1/effects/{id} answered 404.
+     * Nothing leaked — the query is workspace-scoped and the echoed effect_id
+     * is the caller's own input — but CLAUDE.md §5 rule 3 says a cross-tenant
+     * lookup is a 404, and two endpoints answering differently about the same
+     * record invites somebody to trust the friendlier one. It became worth
+     * fixing when free workspaces gained access, because there are now many
+     * more callers who own nothing.
+     *
+     * Ownership is checked rather than inferring it from an empty list:
+     * receipts are pruned, so an effect you DO own can legitimately have none
+     * left, and answering 404 for that would be a lie about your own record.
+     */
+    const own = await getEffect(getPool(), wsOf(req), effectId);
+    if (!own) throw errors.notFound('No such effect.');
+
     const rows = await receiptsFor(getPool(), wsOf(req), effectId);
     return {
       effect_id: effectId,
@@ -84,8 +107,22 @@ export default async function receiptRoutes(app: FastifyInstance) {
    * each signature, and walks the links. This is the check a customer runs
    * against us, so it has to be able to fail.
    */
+  /*
+   * Bounded on purpose, now that free can reach it.
+   *
+   * `auditChain` re-verifies up to 10,000 Ed25519 signatures in one call. That
+   * was fine when only paying workspaces could ask; it is reachable by any
+   * keyless workspace now, and keyless provisioning issues those freely. The
+   * work is workspace-scoped so a fresh caller has one or two receipts to
+   * check, but the ceiling is what stops a long-lived free workspace being an
+   * amplifier.
+   *
+   * Thirty an hour is far more than verifying your own chain ever needs and far
+   * less than a loop.
+   */
   app.get('/receipts/audit', {
     preHandler: [app.requireConsole('effects:read'), app.requireCapability('signedReceipts')],
+    config: { rateLimit: stricterThan(30, '1 hour') },
     schema: {
       tags: ['Receipts'], operationId: 'auditReceipts',
       summary: 'Verify the receipt chain end to end',

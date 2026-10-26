@@ -112,8 +112,24 @@ production and prove it to somebody else, rather than what stops the bad outcome
 | Capability | Free | Pro | Scale | What it is |
 |---|:--:|:--:|:--:|---|
 | Reversible effect groups | – | ✓ | ✓ | Undo a half-finished unit of work |
-| Signed receipts | – | ✓ | ✓ | Verify each decision without trusting us |
+| Signed receipts | ✓ | ✓ | ✓ | Verify each decision without trusting us. Free reads its OWN receipts from 12 Sep 2026 — see below |
 | Reconciliation | – | – | ✓ | Find real-world actions that bypassed the gate |
+
+**Why free reads its own receipts (12 Sep 2026).** A receipt is the product's
+argument: proof, checkable by someone who is not us, that a decision was made
+and not altered. Charging to see it was charging for the evidence that the thing
+you just did was recorded.
+
+It also cost nothing to give away. Receipts are **written** for every workspace
+on every plan — only the read was gated — so opening it spends no compute at
+all. What it was costing was activation: eight of the first nine workspaces
+performed exactly one effect and never returned, having never once seen the
+artefact the whole pitch rests on.
+
+The paywall stays on volume, `reconciliation` and `reversibleGroups`, which are
+the things that actually cost something to run. `/v1/receipts/audit` is rate
+limited to 30/hour because it re-verifies up to 10,000 signatures and is now
+reachable by any keyless workspace.
 
 **Two things deliberately left open to everyone:**
 

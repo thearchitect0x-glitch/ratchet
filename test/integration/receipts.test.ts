@@ -83,9 +83,18 @@ describe('receipts through the gate', () => {
     const receipts = await receiptsFor(getPool(), ws.workspaceId, r.effectId);
     assert.ok(receipts.length >= 1);
     const rec = receipts[0]!;
-    assert.ok(verifyReceipt(JSON.stringify(rec.body), rec.signature),
+    /*
+     * Against the bytes as given. This used to re-serialise a parsed object
+     * with JSON.stringify to make it verify — "no further work" while doing
+     * further work — and it only succeeded because JSON.parse happened to
+     * preserve the sorted key order canonicalBody had produced. Any change to
+     * escaping, number formatting or nesting would have broken it silently, in
+     * the one operation the endpoint exists to support.
+     */
+    assert.equal(typeof rec.body, 'string', 'body must be the signed bytes, not a parsed object');
+    assert.ok(verifyReceipt(rec.body, rec.signature),
       'a receipt handed to a customer must verify with no further work');
-    assert.equal((rec.body as { decision: string }).decision, 'execute');
+    assert.equal((JSON.parse(rec.body) as { decision: string }).decision, 'execute');
   });
 });
 

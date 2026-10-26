@@ -119,7 +119,23 @@ export const PLANS: Record<PlanId, Plan> = {
     // Everything that prevents damage. Nothing that proves it to a third party.
     capabilities: {
       reversibleGroups: false,
-      signedReceipts: false,
+      /*
+       * Free reads its own receipts, from 12 Sep 2026.
+       *
+       * A receipt is the product's argument: proof, verifiable by someone who
+       * is not us, that a decision was made and not altered. Charging to see it
+       * was charging for the evidence that the thing you just did was recorded.
+       *
+       * It also cost nothing to withhold and a great deal to withhold. Receipts
+       * are WRITTEN for every workspace on every plan — only the read was
+       * gated — so opening it spends no compute at all. Meanwhile eight of the
+       * first nine workspaces performed exactly one effect and never returned,
+       * having never once seen the artefact the whole pitch rests on.
+       *
+       * The paywall moves to volume, reconciliation and reversible groups,
+       * which are the things that actually cost us something to run.
+       */
+      signedReceipts: true,
       reconciliation: false,
     },
     selfServe: true,

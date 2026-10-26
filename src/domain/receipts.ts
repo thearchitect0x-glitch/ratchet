@@ -353,7 +353,8 @@ export interface ReceiptView {
   effectId: string;
   decision: string;
   attempt: number;
-  body: unknown;
+  /** The exact signed bytes. JSON.parse it for the fields; verify against it as-is. */
+  body: string;
   signature: string;
   bodyHash: string;
   prevHash: string | null;
@@ -376,7 +377,20 @@ export async function receiptsFor(
     effectId: r.effect_id,
     decision: r.decision,
     attempt: r.attempt,
-    body: JSON.parse(r.body),
+    /*
+     * The exact bytes, not a parsed object.
+     *
+     * This used to hand back JSON.parse(r.body) while the endpoint's own
+     * description promised "signature is over the exact bytes in `body`".
+     * There were no exact bytes left: a caller received an object and had to
+     * re-serialise it, guessing our key order, number formatting and escaping,
+     * to check a signature. That is the one thing this endpoint exists for.
+     *
+     * The column is TEXT and holds what was signed. It is returned verbatim,
+     * the way every signed-payload format does it — a caller runs
+     * JSON.parse(body) for the fields and verifies against the string.
+     */
+    body: r.body,
     signature: r.signature,
     bodyHash: r.body_hash,
     prevHash: r.prev_hash,

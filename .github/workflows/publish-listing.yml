@@ -10,6 +10,12 @@
 # secret the whole time, so the only thing missing was something to run it.
 #
 # Nobody handles the key. It goes from the secret store to a process that exits.
+#
+# The job runs in the `release` environment, like publish.yml's: only from a v*
+# tag, and only after a maintainer approves the run. Keep MCP_REGISTRY_PRIVATE_KEY
+# as a secret of that environment, where a workflow on another ref cannot read it.
+# Approve publish.yml's run first or together with this one: this job waits only
+# five minutes for npm to serve the new version.
 name: publish-listing
 
 on:
@@ -19,6 +25,10 @@ on:
   # outage must not make a successful npm publish look failed.
   release:
     types: [published]
+  # By hand, run it on the latest release tag, which must be one cut after this
+  # change (gh workflow run publish-listing.yml --ref vX.Y.Z). A run uses this
+  # file as it stands at that tag, and no tag cut before this change carries it
+  # with the release environment. The release environment refuses a branch.
   workflow_dispatch:
 
 permissions:
@@ -31,6 +41,7 @@ concurrency:
 jobs:
   listing:
     runs-on: ubuntu-latest
+    environment: release     # waits for a maintainer's approval (Settings → Environments → release; v* tags only)
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

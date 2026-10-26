@@ -9,10 +9,21 @@
 # Needs an NPM_TOKEN secret (an automation token, not a publish-with-2FA one) or
 # the job is skipped rather than failed — a missing credential is a setup step,
 # not a broken build.
+#
+# The job runs in the `release` environment, so it starts only from a v* tag and
+# only after a maintainer approves the run. Keep NPM_TOKEN as a secret of that
+# environment rather than of the repository: a repository secret can be read by
+# a workflow pushed to any branch, an environment secret only by a job the
+# environment let through.
 name: publish
 on:
   release:
     types: [published]
+  # By hand, run it on a release tag cut after this change (gh workflow run
+  # publish.yml --ref vX.Y.Z). A run uses this file as it stands at that tag,
+  # and a tag cut before this change carries a copy that names no environment:
+  # once NPM_TOKEN lives only in the release environment, such a run publishes
+  # nothing. A branch is refused, by the environment and by the tag check below.
   workflow_dispatch:
 
 permissions:
@@ -21,6 +32,7 @@ permissions:
 jobs:
   npm:
     runs-on: ubuntu-latest
+    environment: release     # waits for a maintainer's approval (Settings → Environments → release; v* tags only)
     permissions:
       contents: write        # to attach the SBOM to the release
       id-token: write        # what lets npm attach provenance
@@ -82,13 +94,23 @@ jobs:
       # attestation would still be perfectly genuine about a commit nobody
       # vouched for. Tags are signed now, so require the signature to verify
       # before anything reaches npm.
+      #
+      # The tag is read here, after the wait for approval, but the commit being
+      # published is GITHUB_SHA, fixed when the run was triggered. A tag moved
+      # in between would have its signature checked while a different commit
+      # went out, so the tag must still point at GITHUB_SHA.
       - name: The tag being published must carry a verified signature
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          TAG="${RELEASE_TAG:-v$(node -p "require('./packages/ratchet-mcp/package.json').version")}"
+          # A release names its tag; a run by hand is on the ref it was started on.
+          TAG="${RELEASE_TAG:-$GITHUB_REF_NAME}"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::this run is on the ${GITHUB_REF_TYPE} ${GITHUB_REF_NAME}, not a tag. Publish from a release, or run it by hand on the release tag."
+            exit 1
+          fi
           echo "checking $TAG"
 
           ref=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" \
@@ -110,6 +132,15 @@ jobs:
             exit 1
           fi
           echo "${TAG}: signature verified (${r})"
+
+          # The tag object is addressed by its own hash, so what it points at
+          # cannot change under this read: it is the commit the signature vouches for.
+          target=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${sha}" --jq '.object.type + " " + .object.sha')
+          if [ "$target" != "commit ${GITHUB_SHA}" ]; then
+            echo "::error::${TAG} now points at ${target}, not at commit ${GITHUB_SHA}, which this run checked out. Was the tag moved after the run began? Nothing was published."
+            exit 1
+          fi
+          echo "${TAG}: still points at ${GITHUB_SHA}, the commit this run checked out"
 
       # An SBOM per release, in both formats procurement actually asks for.
       # The dependency set is small and pinned by a committed lockfile, but a
@@ -146,7 +177,8 @@ jobs:
         if: ${{ github.event_name == 'release' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" sbom/*.json --clobber
+          RELEASE_TAG: ${{ github.event.release.tag_name }}   # through env, never pasted into the script
+        run: gh release upload "$RELEASE_TAG" sbom/*.json --clobber
 
       # Publishing a version that is already on npm is a hard error, so a
       # re-run of this workflow — after a transient failure, or a second package
@@ -189,4 +221,4 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           echo "NPM_TOKEN is not set, so nothing was published."
-          echo "Add an automation token: gh secret set NPM_TOKEN"
+          echo "Add an automation token: gh secret set NPM_TOKEN --env release"
